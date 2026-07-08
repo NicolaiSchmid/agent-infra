@@ -29,7 +29,7 @@
         type = "disk";
         device = "/dev/vdb";
         imageName = "atlas-state";
-        imageSize = "650G";
+        imageSize = "1000G";
         content = {
           type = "gpt";
           partitions = {
