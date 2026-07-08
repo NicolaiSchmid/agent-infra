@@ -9,6 +9,10 @@
   keys = import ../../modules/keys.nix;
   agentModules = "${inputs.dotfiles-src}/darwin/agents";
   cliTools = import "${inputs.dotfiles-src}/darwin/packages/cli-tools.nix" {inherit pkgs;};
+  ghPrShim = pkgs.writeShellScriptBin "gh" ''
+    export GH_PR_SHIM_REAL_GH=${pkgs.gh}/bin/gh
+    exec ${pkgs.nodejs_24}/bin/node ${./gh-pr-shim.mjs} "$@"
+  '';
 in {
   imports = [
     (modulesPath + "/profiles/qemu-guest.nix")
@@ -94,6 +98,8 @@ in {
     "d /srv/agents-state/t3code 0755 nicolai users -"
     "d /srv/agents-state/workspace 0755 nicolai users -"
   ];
+
+  systemd.services.t3code.path = lib.mkBefore [ghPrShim];
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
     ${pkgs.docker}/bin/docker run --rm --name hermes \
@@ -211,6 +217,14 @@ in {
       tmux
       vim
     ]);
+
+  environment.etc."gitconfig".text = ''
+    [user]
+      name = Nicolai Schmid
+      email = nicolai@schmid.uno
+    [init]
+      defaultBranch = main
+  '';
 
   programs.zsh.enable = true;
   users.defaultUserShell = pkgs.zsh;
