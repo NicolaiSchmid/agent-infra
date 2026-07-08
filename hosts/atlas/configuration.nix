@@ -108,9 +108,9 @@ in {
     sock=/run/tailscale-t3code/tailscaled.sock
     if ! ${pkgs.tailscale}/bin/tailscale --socket="$sock" status --json | ${pkgs.jq}/bin/jq -e '.BackendState == "Running"' >/dev/null; then
       if [ -s /srv/agents-state/secrets/tailscale.authkey ]; then
-        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --authkey="$(cat /srv/agents-state/secrets/tailscale.authkey)" --hostname=t3code --accept-dns=false
+        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --authkey="$(cat /srv/agents-state/secrets/tailscale.authkey)" --hostname=atlas-t3code --accept-dns=false
       else
-        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --hostname=t3code --accept-dns=false
+        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --hostname=atlas-t3code --accept-dns=false
       fi
     fi
     ${pkgs.tailscale}/bin/tailscale --socket="$sock" serve --bg --https=443 "http://127.0.0.1:3773"
