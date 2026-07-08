@@ -93,6 +93,54 @@ in {
     "d /srv/agents-state/workspace 0755 nicolai users -"
   ];
 
+  systemd.services.hermes.unitConfig.ConditionPathExists = [
+    "/srv/agents-state/secrets/hermes-dashboard.env"
+    "/srv/agents-state/secrets/hermes_ssh"
+  ];
+
+  systemd.services.hermes-serve.unitConfig.ConditionPathExists = [
+    "/srv/agents-state/secrets/hermes-dashboard.env"
+    "/srv/agents-state/secrets/hermes_ssh"
+  ];
+
+  systemd.services.agents-process-watch.serviceConfig.ExecStart = lib.mkForce (pkgs.writeShellScript "agents-process-watch" ''
+    set -euo pipefail
+
+    ${pkgs.procps}/bin/ps -eo pid=,ppid=,etimes=,pcpu=,pmem=,comm=,args= |
+      ${pkgs.gawk}/bin/awk '
+        function emit(reason, line) {
+          cmd = "${pkgs.util-linux}/bin/logger -t agents-process-watch -- " q reason ": " line q
+          system(cmd)
+        }
+
+        BEGIN {
+          q = sprintf("%c", 39)
+        }
+
+        {
+          pid = $1
+          ppid = $2
+          etimes = $3 + 0
+          pcpu = $4 + 0
+          pmem = $5 + 0
+          comm = $6
+
+          args = $0
+          sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9.]+[[:space:]]+[0-9.]+[[:space:]]+[^[:space:]]+[[:space:]]+/, "", args)
+
+          if ((index(args, "glob.glob(") || index(args, "glob(")) && index(args, "/**/")) {
+            emit("root recursive glob", $0)
+          } else if (comm ~ /^python/ && args ~ /python3? -/ && etimes > 1800 && pcpu > 80) {
+            emit("long high-cpu stdin python", $0)
+          } else if (args ~ /(^|[[:space:]])rm[[:space:]]+-[^[:space:]]*i/ && etimes > 900) {
+            emit("stuck interactive rm", $0)
+          } else if ((args ~ /codex exec/ || args ~ /claude --/) && etimes > 21600 && pcpu > 50) {
+            emit("long high-cpu agent subprocess", $0)
+          }
+        }
+      '
+  '');
+
   fileSystems."/var/lib/tailscale" = {
     device = "/srv/agents-state/tailscale";
     fsType = "none";
