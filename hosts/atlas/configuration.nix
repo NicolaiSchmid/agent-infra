@@ -83,6 +83,16 @@ in {
 
   security.sudo.wheelNeedsPassword = false;
 
+  systemd.tmpfiles.rules = [
+    "d /srv/agents-state 0755 root root -"
+    "d /srv/agents-state/hermes 0755 root root -"
+    "d /srv/agents-state/hermes/data 0755 root root -"
+    "d /srv/agents-state/nicolai 0700 nicolai users -"
+    "d /srv/agents-state/secrets 0700 root root -"
+    "d /srv/agents-state/t3code 0755 nicolai users -"
+    "d /srv/agents-state/workspace 0755 nicolai users -"
+  ];
+
   fileSystems."/var/lib/tailscale" = {
     device = "/srv/agents-state/tailscale";
     fsType = "none";
