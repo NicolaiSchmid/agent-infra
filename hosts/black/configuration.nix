@@ -16,6 +16,7 @@ in {
   boot.loader.grub = {
     enable = true;
     efiSupport = true;
+    efiInstallAsRemovable = true;
     mirroredBoots = [
       {
         devices = ["nodev"];
@@ -23,7 +24,7 @@ in {
       }
     ];
   };
-  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader.efi.canTouchEfiVariables = false;
 
   boot.initrd.availableKernelModules = [
     "nvme"
