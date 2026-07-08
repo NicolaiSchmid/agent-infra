@@ -22,10 +22,16 @@ in {
         devices = ["nodev"];
         path = "/boot";
       }
+      {
+        devices = ["nodev"];
+        path = "/boot-fallback";
+      }
     ];
   };
   boot.loader.efi.canTouchEfiVariables = false;
 
+  boot.supportedFilesystems = ["btrfs"];
+  boot.initrd.supportedFilesystems = ["btrfs"];
   boot.initrd.availableKernelModules = [
     "nvme"
     "xhci_pci"
@@ -34,7 +40,6 @@ in {
     "sd_mod"
   ];
   boot.kernelModules = ["kvm-amd"];
-  boot.swraid.mdadmConf = "PROGRAM ${pkgs.coreutils}/bin/true";
 
   networking.hostName = "black";
   time.timeZone = "Europe/Berlin";
