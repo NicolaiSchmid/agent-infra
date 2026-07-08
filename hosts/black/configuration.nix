@@ -58,6 +58,7 @@ in {
   services.tailscale = {
     enable = true;
     authKeyFile = lib.mkIf (config.sops.secrets ? "tailscale/black-authkey") config.sops.secrets."tailscale/black-authkey".path;
+    port = 41640;
     extraUpFlags = [
       "--ssh"
       "--hostname=black"
