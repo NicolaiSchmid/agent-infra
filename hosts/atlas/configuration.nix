@@ -88,11 +88,31 @@ in {
     "d /srv/agents-state 0755 root root -"
     "d /srv/agents-state/hermes 0755 root root -"
     "d /srv/agents-state/hermes/data 0755 root root -"
+    "d /srv/agents-state/hermes/tmp 1777 root root -"
     "d /srv/agents-state/nicolai 0700 nicolai users -"
     "d /srv/agents-state/secrets 0700 root root -"
     "d /srv/agents-state/t3code 0755 nicolai users -"
     "d /srv/agents-state/workspace 0755 nicolai users -"
   ];
+
+  systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
+    ${pkgs.docker}/bin/docker run --rm --name hermes \
+      --network host \
+      --mount type=bind,source=/srv/agents-state/hermes/data,target=/opt/data \
+      --mount type=bind,source=/srv/agents-state/secrets/hermes_ssh,target=/secrets/hermes_ssh,readonly \
+      --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
+      --tmpfs /run:rw,nosuid,nodev,mode=0755 \
+      --tmpfs /var/tmp:rw,nosuid,nodev,mode=1777 \
+      --env-file /srv/agents-state/secrets/hermes-dashboard.env \
+      -e HERMES_UID=1000 -e HERMES_GID=100 \
+      -e HERMES_DASHBOARD=1 \
+      -e TERMINAL_ENV=ssh \
+      -e TERMINAL_SSH_HOST=127.0.0.1 \
+      -e TERMINAL_SSH_USER=nicolai \
+      -e TERMINAL_SSH_PORT=22 \
+      -e TERMINAL_SSH_KEY=/secrets/hermes_ssh \
+      hermes-agent:latest gateway run
+  '';
 
   systemd.services.hermes.unitConfig.ConditionPathExists = [
     "/srv/agents-state/secrets/hermes-dashboard.env"
