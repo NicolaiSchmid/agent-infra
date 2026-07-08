@@ -21,7 +21,16 @@ in {
     "${agentModules}/process-watch.nix"
   ];
 
-  boot.loader.grub.enable = true;
+  boot.loader.grub = {
+    enable = true;
+    devices = lib.mkForce [];
+    mirroredBoots = lib.mkForce [
+      {
+        devices = ["/dev/vda"];
+        path = "/boot";
+      }
+    ];
+  };
   boot.growPartition = true;
   boot.kernelParams = [
     "console=ttyS0,115200"

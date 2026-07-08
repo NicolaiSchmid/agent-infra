@@ -18,6 +18,10 @@ The Hetzner machine boots into rescue at `65.109.71.108`.
      root@65.109.71.108
    ```
 
+   If the first boot is unreachable, reboot into rescue and rerun the same
+   command. The config forces legacy `eth0` naming and uses removable EFI
+   fallback boot paths, so rescue installs do not depend on EFI variable writes.
+
 3. After reboot:
 
    ```bash
@@ -31,7 +35,26 @@ The Hetzner machine boots into rescue at `65.109.71.108`.
    virsh list --all
    ```
 
-The first `atlas` OS install still needs an installer path. The intended target
-is `nixos-anywhere --flake .#atlas` against the VM once it has temporary SSH
-from an installer/rescue image, or building a raw disk image from the flake and
-writing it to `atlas-root.raw`.
+5. Build and install the initial `atlas` VM images on `black`:
+
+   ```bash
+   nix run github:NicolaiSchmid/agent-infra#install-atlas -- \
+     --replace-root \
+     --replace-state \
+     --start
+   ```
+
+   `--replace-state` initializes `/var/lib/libvirt/images/atlas-state.raw`.
+   Do not use it after migrated agent state exists.
+
+6. Rebuild `black` after future config changes:
+
+   ```bash
+   nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra#black
+   ```
+
+7. Rebuild `atlas` after it is reachable:
+
+   ```bash
+   nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra#atlas --target-host root@atlas
+   ```

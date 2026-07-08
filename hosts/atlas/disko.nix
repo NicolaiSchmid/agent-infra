@@ -4,6 +4,8 @@
       root = {
         type = "disk";
         device = "/dev/vda";
+        imageName = "atlas-root";
+        imageSize = "120G";
         content = {
           type = "gpt";
           partitions = {
@@ -26,6 +28,8 @@
       state = {
         type = "disk";
         device = "/dev/vdb";
+        imageName = "atlas-state";
+        imageSize = "650G";
         content = {
           type = "gpt";
           partitions = {

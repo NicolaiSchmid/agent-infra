@@ -79,6 +79,142 @@
       atlas = self.nixosConfigurations.atlas.config.system.build.toplevel;
     };
 
+    packages.${system} = {
+      atlas-disko-images-script = self.nixosConfigurations.atlas.config.system.build.diskoImagesScript;
+
+      install-atlas = pkgs.writeShellApplication {
+        name = "install-atlas";
+        runtimeInputs = with pkgs; [
+          coreutils
+          gnugrep
+          libvirt
+          nix
+          qemu
+          rsync
+        ];
+        text = ''
+          set -euo pipefail
+
+          image_dir=/var/lib/libvirt/images
+          flake_ref=${self.outPath}
+          build_memory=8192
+          replace_root=0
+          replace_state=0
+          start_vm=0
+
+          usage() {
+            cat <<USAGE
+          Usage: install-atlas [options]
+
+          Options:
+            --flake <ref>       Flake ref to build from. Defaults to this flake.
+            --image-dir <path>  Libvirt image directory. Defaults to /var/lib/libvirt/images.
+            --build-memory <m>  Memory in MiB for disko's image-build VM. Defaults to 8192.
+            --replace-root      Replace atlas-root.raw if it already exists.
+            --replace-state     Replace atlas-state.raw if it already exists. This destroys agent state.
+            --start             Start atlas after installing images.
+            -h, --help          Show this help.
+          USAGE
+          }
+
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              --flake)
+                flake_ref="$2"
+                shift 2
+                ;;
+              --image-dir)
+                image_dir="$2"
+                shift 2
+                ;;
+              --build-memory)
+                build_memory="$2"
+                shift 2
+                ;;
+              --replace-root)
+                replace_root=1
+                shift
+                ;;
+              --replace-state)
+                replace_state=1
+                shift
+                ;;
+              --start)
+                start_vm=1
+                shift
+                ;;
+              -h|--help)
+                usage
+                exit 0
+                ;;
+              *)
+                usage >&2
+                exit 2
+                ;;
+            esac
+          done
+
+          if [ "$(id -u)" -ne 0 ]; then
+            echo "install-atlas must run as root on black." >&2
+            exit 1
+          fi
+
+          if virsh domstate atlas 2>/dev/null | grep -q '^running$'; then
+            echo "atlas is running; refusing to replace VM disks." >&2
+            exit 1
+          fi
+
+          install -d -m 0711 "$image_dir"
+          workdir=$(mktemp -d "$image_dir/atlas-image-build.XXXXXX")
+          cleanup() {
+            rm -rf "$workdir"
+          }
+          trap cleanup EXIT
+
+          echo "Building atlas disko image script from $flake_ref"
+          nix build "$flake_ref#nixosConfigurations.atlas.config.system.build.diskoImagesScript" --out-link "$workdir/disko-images-script"
+
+          (
+            cd "$workdir"
+            ./disko-images-script --build-memory "$build_memory"
+          )
+
+          install_image() {
+            src="$1"
+            dst="$2"
+            replace="$3"
+
+            if [ -e "$dst" ] && [ "$replace" -ne 1 ]; then
+              echo "$dst exists; leaving it untouched."
+              return
+            fi
+
+            tmp="$dst.tmp.$$"
+            rm -f "$tmp"
+            rsync --sparse --inplace "$src" "$tmp"
+            chmod 0644 "$tmp"
+            mv "$tmp" "$dst"
+          }
+
+          install_image "$workdir/atlas-root.raw" "$image_dir/atlas-root.raw" "$replace_root"
+          install_image "$workdir/atlas-state.raw" "$image_dir/atlas-state.raw" "$replace_state"
+
+          systemctl start atlas-libvirt-domain.service
+
+          if [ "$start_vm" -eq 1 ]; then
+            virsh start atlas || true
+          fi
+
+          echo "atlas images are installed in $image_dir"
+        '';
+      };
+    };
+
+    apps.${system}.install-atlas = {
+      type = "app";
+      program = "${self.packages.${system}.install-atlas}/bin/install-atlas";
+    };
+
     formatter = forFormatterSystems (fmtSystem: nixpkgs.legacyPackages.${fmtSystem}.alejandra);
   };
 }
