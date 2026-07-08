@@ -191,7 +191,7 @@
 
             tmp="$dst.tmp.$$"
             rm -f "$tmp"
-            rsync --sparse --inplace "$src" "$tmp"
+            cp --reflink=auto --sparse=always "$src" "$tmp"
             chmod 0644 "$tmp"
             mv "$tmp" "$dst"
           }
