@@ -101,7 +101,6 @@ in {
       --mount type=bind,source=/srv/agents-state/hermes/data,target=/opt/data \
       --mount type=bind,source=/srv/agents-state/secrets/hermes_ssh,target=/secrets/hermes_ssh,readonly \
       --tmpfs /tmp:rw,nosuid,nodev,mode=1777 \
-      --tmpfs /run:rw,nosuid,nodev,mode=0755 \
       --tmpfs /var/tmp:rw,nosuid,nodev,mode=1777 \
       --env-file /srv/agents-state/secrets/hermes-dashboard.env \
       -e HERMES_UID=1000 -e HERMES_GID=100 \
