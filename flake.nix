@@ -23,7 +23,7 @@
     # the darwin flake subdir because that is where the current NixOS agent
     # modules live.
     dotfiles-src = {
-      url = "path:/Users/nicolai/git/personal/dotfiles-nix";
+      url = "github:NicolaiSchmid/dotfiles-nix";
       flake = false;
     };
   };

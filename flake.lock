@@ -23,14 +23,17 @@
     "dotfiles-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1783498790,
-        "narHash": "sha256-ZePhLddDTDXGYpCgIEkzUW/0Y5Y454fQpLJu8w0Va2s=",
-        "path": "/Users/nicolai/git/personal/dotfiles-nix",
-        "type": "path"
+        "lastModified": 1783503436,
+        "narHash": "sha256-WpTMLngH47uZKkmv5RZ4TxHPpTpQQtTQ3mi3MPDF0rg=",
+        "owner": "NicolaiSchmid",
+        "repo": "dotfiles-nix",
+        "rev": "1a1d57b2b20ec2a148e16423ffae7a73f51b32b8",
+        "type": "github"
       },
       "original": {
-        "path": "/Users/nicolai/git/personal/dotfiles-nix",
-        "type": "path"
+        "owner": "NicolaiSchmid",
+        "repo": "dotfiles-nix",
+        "type": "github"
       }
     },
     "home-manager": {
