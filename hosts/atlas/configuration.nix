@@ -15,6 +15,7 @@ in {
     ./disko.nix
     ./sops.nix
     ./tailscale.nix
+    "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
     "${agentModules}/hermes.nix"
@@ -102,6 +103,19 @@ in {
     "/srv/agents-state/secrets/hermes-dashboard.env"
     "/srv/agents-state/secrets/hermes_ssh"
   ];
+
+  systemd.services.tailscale-t3code-serve.script = lib.mkForce ''
+    sock=/run/tailscale-t3code/tailscaled.sock
+    if ! ${pkgs.tailscale}/bin/tailscale --socket="$sock" status --json | ${pkgs.jq}/bin/jq -e '.BackendState == "Running"' >/dev/null; then
+      if [ -s /srv/agents-state/secrets/tailscale.authkey ]; then
+        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --authkey="$(cat /srv/agents-state/secrets/tailscale.authkey)" --hostname=t3code --accept-dns=false
+      else
+        ${pkgs.tailscale}/bin/tailscale --socket="$sock" up --hostname=t3code --accept-dns=false
+      fi
+    fi
+    ${pkgs.tailscale}/bin/tailscale --socket="$sock" serve --bg --https=443 "http://127.0.0.1:3773"
+    exec sleep infinity
+  '';
 
   systemd.services.agents-process-watch.serviceConfig.ExecStart = lib.mkForce (pkgs.writeShellScript "agents-process-watch" ''
     set -euo pipefail
