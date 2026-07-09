@@ -97,7 +97,21 @@ in {
     "d /srv/agents-state/secrets 0700 root root -"
     "d /srv/agents-state/t3code 0755 nicolai users -"
     "d /srv/agents-state/workspace 0755 nicolai users -"
+    "L+ /srv/agents-state/t3code/.aliases - - - - /srv/agents-state/nicolai/.aliases"
+    "L+ /srv/agents-state/t3code/.zshenv - - - - /srv/agents-state/nicolai/.zshenv"
+    "L+ /srv/agents-state/t3code/.zshrc - - - - /srv/agents-state/nicolai/.zshrc"
   ];
+
+  system.activationScripts.removeBrokenAgentHomeLinks.text = ''
+    for base in /srv/agents-state/nicolai /root; do
+      for rel in .zshrc .zshenv .aliases .config/git/config; do
+        path="$base/$rel"
+        if [ -L "$path" ] && [ ! -e "$path" ]; then
+          rm "$path"
+        fi
+      done
+    done
+  '';
 
   systemd.services.t3code.path = lib.mkBefore [ghPrShim];
 
