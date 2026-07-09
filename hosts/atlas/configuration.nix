@@ -26,6 +26,54 @@ in {
     "${agentModules}/process-watch.nix"
   ];
 
+  nixpkgs.overlays = [
+    (final: prev: {
+      claude-code = prev.claude-code.overrideAttrs (_old: {
+        version = "2.1.205";
+        src = final.fetchurl {
+          url = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.205/linux-x64/claude";
+          hash = "sha256-3Yc0wLalA/4dF0JRhOV7OXwwuwM3oz8UcNmYX+v+Wwk=";
+        };
+      });
+
+      codex = final.stdenvNoCC.mkDerivation rec {
+        pname = "codex";
+        version = "0.143.0";
+
+        src = final.fetchurl {
+          url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-x86_64-unknown-linux-musl.tar.gz";
+          hash = "sha256-2dxzHcZuInsXWxPAcb6eoSbMdnL8rIqHgj2lCw0rL/4=";
+        };
+
+        nativeBuildInputs = [final.makeWrapper];
+
+        unpackPhase = ''
+          tar -xzf "$src"
+        '';
+
+        installPhase = ''
+          runHook preInstall
+
+          install -Dm755 codex-x86_64-unknown-linux-musl "$out/bin/codex"
+          wrapProgram "$out/bin/codex" \
+            --prefix PATH : ${final.lib.makeBinPath [
+            final.bubblewrap
+            final.ripgrep
+          ]}
+
+          runHook postInstall
+        '';
+
+        meta =
+          prev.codex.meta
+          // {
+            sourceProvenance = [final.lib.sourceTypes.binaryNativeCode];
+            platforms = ["x86_64-linux"];
+          };
+      };
+    })
+  ];
+
   boot.loader.grub = {
     enable = true;
     devices = lib.mkForce [];
