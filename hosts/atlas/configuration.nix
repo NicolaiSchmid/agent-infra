@@ -38,11 +38,11 @@ in {
 
       codex = final.stdenvNoCC.mkDerivation rec {
         pname = "codex";
-        version = "0.143.0";
+        version = "0.144.1";
 
         src = final.fetchurl {
           url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-x86_64-unknown-linux-musl.tar.gz";
-          hash = "sha256-2dxzHcZuInsXWxPAcb6eoSbMdnL8rIqHgj2lCw0rL/4=";
+          hash = "sha256-hAka4gxl/MfUEg25fRvVfX/435x2Cft4HHjC671PWig=";
         };
 
         nativeBuildInputs = [final.makeWrapper];
