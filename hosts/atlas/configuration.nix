@@ -162,6 +162,14 @@ in {
   '';
 
   systemd.services.t3code.path = lib.mkBefore [ghPrShim];
+  systemd.services.t3code.serviceConfig.ExecStartPre = lib.mkForce (pkgs.writeShellScript "t3code-install" ''
+    set -euo pipefail
+    mkdir -p "/srv/agents-state/t3code/app" "/srv/agents-state/nicolai" "/srv/agents-state/workspace"
+    install -m644 "${./t3code-app}/package.json" "/srv/agents-state/t3code/app/package.json"
+    install -m644 "${./t3code-app}/bun.lock" "/srv/agents-state/t3code/app/bun.lock"
+    cd "/srv/agents-state/t3code/app"
+    ${pkgs.bun}/bin/bun install --frozen-lockfile
+  '');
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
     ${pkgs.docker}/bin/docker run --rm --name hermes \
