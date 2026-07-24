@@ -29,10 +29,10 @@ in {
   nixpkgs.overlays = [
     (final: prev: {
       claude-code = prev.claude-code.overrideAttrs (_old: {
-        version = "2.1.205";
+        version = "2.1.219";
         src = final.fetchurl {
-          url = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.205/linux-x64/claude";
-          hash = "sha256-3Yc0wLalA/4dF0JRhOV7OXwwuwM3oz8UcNmYX+v+Wwk=";
+          url = "https://downloads.claude.ai/claude-code-releases/2.1.219/linux-x64/claude";
+          hash = "sha256-Is/W9bMGHAORuoTpz4yd6qN3g6rBiwBNQuwGHpjwBpE=";
         };
       });
 
