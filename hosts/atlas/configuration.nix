@@ -45,16 +45,23 @@ in {
           hash = "sha256-4k+3hMfXEUDWevtiD1bpE3SWz39snhkhf6Nmbc8wYng=";
         };
 
+        codeModeHostSrc = final.fetchurl {
+          url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz";
+          hash = "sha256-YvosPl1LxYcgvXKy7iq4Y24aqp2CNt2uQaHM5ii1mus=";
+        };
+
         nativeBuildInputs = [final.makeWrapper];
 
         unpackPhase = ''
           tar -xzf "$src"
+          tar -xzf "$codeModeHostSrc"
         '';
 
         installPhase = ''
           runHook preInstall
 
           install -Dm755 codex-x86_64-unknown-linux-musl "$out/bin/codex"
+          install -Dm755 codex-code-mode-host-x86_64-unknown-linux-musl "$out/bin/codex-code-mode-host"
           wrapProgram "$out/bin/codex" \
             --prefix PATH : ${final.lib.makeBinPath [
             final.bubblewrap
