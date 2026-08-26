@@ -23,11 +23,11 @@
     "dotfiles-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1787734025,
-        "narHash": "sha256-fAu+xydzAnELhCm837lePdFQNB2SQPruwzaOZyo7Li8=",
+        "lastModified": 1787742495,
+        "narHash": "sha256-5NTCSIp+wNfDltisy9AFJOFmUCxivfhqMEofEWzkHfI=",
         "owner": "NicolaiSchmid",
         "repo": "dotfiles-nix",
-        "rev": "68f0afd51963d40564bb0c11f8b6253bd797c234",
+        "rev": "41305bbfd26755362373147bce4d3a0c4c3448c9",
         "type": "github"
       },
       "original": {
