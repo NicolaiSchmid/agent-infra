@@ -29,20 +29,20 @@ in {
   nixpkgs.overlays = [
     (final: prev: {
       claude-code = prev.claude-code.overrideAttrs (_old: {
-        version = "2.1.219";
+        version = "2.1.246";
         src = final.fetchurl {
-          url = "https://downloads.claude.ai/claude-code-releases/2.1.219/linux-x64/claude";
-          hash = "sha256-Is/W9bMGHAORuoTpz4yd6qN3g6rBiwBNQuwGHpjwBpE=";
+          url = "https://downloads.claude.ai/claude-code-releases/2.1.246/linux-x64/claude";
+          hash = "sha256-GgpmLcG7k46uw4VFq86aSmkRPX1/fF4aVT6idmF7kGo=";
         };
       });
 
       codex = final.stdenvNoCC.mkDerivation rec {
         pname = "codex";
-        version = "0.144.1";
+        version = "0.149.1";
 
         src = final.fetchurl {
           url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-x86_64-unknown-linux-musl.tar.gz";
-          hash = "sha256-hAka4gxl/MfUEg25fRvVfX/435x2Cft4HHjC671PWig=";
+          hash = "sha256-4k+3hMfXEUDWevtiD1bpE3SWz39snhkhf6Nmbc8wYng=";
         };
 
         nativeBuildInputs = [final.makeWrapper];
@@ -70,6 +70,31 @@ in {
             sourceProvenance = [final.lib.sourceTypes.binaryNativeCode];
             platforms = ["x86_64-linux"];
           };
+      };
+
+      opencode = final.stdenvNoCC.mkDerivation rec {
+        pname = "opencode";
+        version = "1.18.23";
+
+        src = final.fetchurl {
+          url = "https://github.com/anomalyco/opencode/releases/download/v${version}/opencode-linux-x64.tar.gz";
+          hash = "sha256-q3AVzYET4BGkYfMKDCt32CmaFE/2iMti6T6IAoNdcog=";
+        };
+
+        unpackPhase = ''
+          tar -xzf "$src"
+        '';
+
+        installPhase = ''
+          install -Dm755 opencode "$out/bin/opencode"
+        '';
+
+        meta = {
+          description = "AI coding agent built for the terminal";
+          homepage = "https://opencode.ai";
+          sourceProvenance = [final.lib.sourceTypes.binaryNativeCode];
+          platforms = ["x86_64-linux"];
+        };
       };
     })
   ];
@@ -276,6 +301,7 @@ in {
       htop
       jq
       lsof
+      opencode
       tailscale
       tmux
       vim
