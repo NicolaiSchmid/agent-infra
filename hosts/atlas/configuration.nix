@@ -223,6 +223,31 @@ in {
     "/srv/agents-state/secrets/hermes_ssh"
   ];
 
+  services.nginx = {
+    enable = true;
+    recommendedProxySettings = true;
+    virtualHosts.t3code-cors = {
+      default = true;
+      listen = [
+        {
+          addr = "127.0.0.1";
+          port = 3774;
+        }
+      ];
+      locations."/" = {
+        proxyPass = "http://127.0.0.1:3773";
+        proxyWebsockets = true;
+        extraConfig = ''
+          proxy_hide_header Access-Control-Allow-Origin;
+          proxy_hide_header Access-Control-Allow-Credentials;
+          add_header Access-Control-Allow-Origin $http_origin always;
+          add_header Access-Control-Allow-Credentials "true" always;
+          add_header Vary Origin always;
+        '';
+      };
+    };
+  };
+
   systemd.services.tailscale-t3code-serve.script = lib.mkForce ''
     sock=/run/tailscale-t3code/tailscaled.sock
     if ! ${pkgs.tailscale}/bin/tailscale --socket="$sock" status --json | ${pkgs.jq}/bin/jq -e '.BackendState == "Running"' >/dev/null; then
@@ -233,7 +258,7 @@ in {
       fi
     fi
     ${pkgs.tailscale}/bin/tailscale --socket="$sock" set --ssh=true
-    ${pkgs.tailscale}/bin/tailscale --socket="$sock" serve --bg --https=443 "http://127.0.0.1:3773"
+    ${pkgs.tailscale}/bin/tailscale --socket="$sock" serve --bg --https=443 "http://127.0.0.1:3774"
     exec sleep infinity
   '';
 
