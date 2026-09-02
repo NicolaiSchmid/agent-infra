@@ -1,5 +1,10 @@
 # one/domovoi -> black/atlas migration
 
+> Historical record. This migration is complete. Do not use the old
+> `one`/`domovoi` commands for current operations; use `black` and `atlas` as
+> documented in the repository README. “Domovoi” now refers only to the Hermes
+> assistant running as a Docker container inside Atlas.
+
 This runbook migrates the old agent VM state from `one`/`domovoi` to
 `black`/`atlas`.
 

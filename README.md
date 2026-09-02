@@ -25,6 +25,16 @@ forwarding into the VM.
 The VM layer keeps the setup cloneable and movable without tying the workstation
 directly to one provider or physical install.
 
+### Naming
+
+- **Black** is the physical host.
+- **Atlas** is the only agent VM and runs all agent workloads.
+- **Domovoi** is the logical name of the Hermes assistant. It is not a separate
+  VM or server: the `hermes` Docker container runs inside Atlas.
+- Historical Tailscale devices named `domovoi` and `t3code` belong to the
+  retired `one`/Domovoi environment. Current administration goes through
+  `black`, `atlas`, and the dedicated `atlas-t3code` UI node.
+
 ## What Lives Here
 
 - `hosts/black/` - bare-metal host, disks, libvirt, Atlas VM definition, network forwarding
@@ -50,6 +60,17 @@ Important subtrees include:
 - `workspace/` - checked-out working repos and agent worktrees
 - `hermes/data/` - Hermes runtime data
 - `secrets/` - local secret material mounted into services
+
+Hermes is built from `NousResearch/hermes-agent` by `hermes-image.service` and
+runs as one `hermes-agent:latest` container under `hermes.service`. That
+container runs both the gateway and dashboard. Its shell backend connects to
+Atlas as `nicolai` over loopback SSH, so commands use Atlas's Nix-managed
+toolchain and workspace rather than the container filesystem.
+
+The dashboard listens on port `9119` inside Atlas. `hermes-serve.service` owns
+its intended Tailscale Serve route, but Serve configuration is mutable; confirm
+the live route with `ssh atlas 'tailscale serve status'` instead of assuming an
+old `domovoi` hostname still points to it.
 
 Atlas also includes a small `gh` wrapper for T3 Code that collapses repeated
 `gh pr list --head ...` polling into a per-repo REST cache. This keeps T3's PR
@@ -98,8 +119,16 @@ Do not casually restart `t3code`, Hermes, Codex, Claude, or their subprocesses.
 They may be carrying active work. Config changes that affect service
 environment, PATH, or runtime mounts should be applied in a planned window.
 
+For a quick topology and health check:
+
+```bash
+ssh root@black 'virsh list --all'
+ssh atlas 'systemctl is-active t3code hermes hermes-serve'
+ssh atlas 'docker ps --filter name=hermes'
+```
+
 ## Runbooks
 
 - [Bootstrap](runbooks/bootstrap.md)
-- [one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
+- [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)
