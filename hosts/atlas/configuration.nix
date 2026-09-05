@@ -29,25 +29,25 @@ in {
   nixpkgs.overlays = [
     (final: prev: {
       claude-code = prev.claude-code.overrideAttrs (_old: {
-        version = "2.1.260";
+        version = "2.1.261";
         src = final.fetchurl {
-          url = "https://downloads.claude.ai/claude-code-releases/2.1.260/linux-x64/claude";
-          hash = "sha256-ei/cdLaDbqPRg/ZluGnw7juuvJcTy+v/5YONpOp72C4=";
+          url = "https://downloads.claude.ai/claude-code-releases/2.1.261/linux-x64/claude";
+          hash = "sha256-SuQN0XhOhXU+dC4J8mfSnsu4KJA2GtOBfSdWCGbTZKY=";
         };
       });
 
       codex = final.stdenvNoCC.mkDerivation rec {
         pname = "codex";
-        version = "0.153.2";
+        version = "0.153.4";
 
         src = final.fetchurl {
           url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-x86_64-unknown-linux-musl.tar.gz";
-          hash = "sha256-6M0RYAcfcl0qEMq4EHPdaBj8iwljchJdJ+9uZv3wl54=";
+          hash = "sha256-9HlCTsoJJITcQNh64oxE9MxAI0pgBF1hMeSTgA2BSjA=";
         };
 
         codeModeHostSrc = final.fetchurl {
           url = "https://github.com/openai/codex/releases/download/rust-v${version}/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz";
-          hash = "sha256-F3pFB7nMf5fxE6wDRpezn2pxqHaovVCP9tf1LzQuvko=";
+          hash = "sha256-+VgwqGlZCVdmS7/Ge8ywh3OAa2k2cLrxWQgXb4m0zTE=";
         };
 
         nativeBuildInputs = [final.makeWrapper];
