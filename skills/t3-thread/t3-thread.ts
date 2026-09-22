@@ -240,8 +240,9 @@ function makeDispatcher(origin: string, token: string, db: Database): Dispatcher
       fail(`T3 server unreachable at ${origin}: ${(e as Error).message}`);
     }
     const text = await res.text();
-    if (res.status === 401 || res.status === 403) fail(`T3 refused the bearer token (${res.status}): ${text}`);
-    if (!res.ok) fail(`${command.type} dispatch failed (${res.status}): ${text}`);
+    const detail = text || res.statusText || "(empty response body)";
+    if (res.status === 401 || res.status === 403) fail(`T3 refused the bearer token (${res.status}): ${detail}`);
+    if (!res.ok) fail(`${command.type} dispatch failed (${res.status}): ${detail}`);
     const sequence = (JSON.parse(text) as { sequence?: number }).sequence;
     if (typeof sequence !== "number") fail(`${command.type} dispatch returned no sequence: ${text}`);
     // The receipt row is written once the command is applied; rejections land there.
