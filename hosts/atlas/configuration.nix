@@ -14,10 +14,11 @@
     exec ${pkgs.nodejs_24}/bin/node ${./gh-pr-shim.mjs} "$@"
   '';
 
-  # Global agent skills: every directory under ../../skills with a SKILL.md is
-  # installed for nicolai into both Claude Code (~/.claude/skills) and Codex
-  # (~/.codex/skills). recursive = true keeps the target a real directory of
-  # per-file store symlinks, so hand-installed skills next to it are untouched.
+  # Global agent skills: every directory under ../../skills (each holding a
+  # SKILL.md plus scripts) is installed for nicolai into both Claude Code
+  # (~/.claude/skills) and Codex (~/.codex/skills). recursive = true keeps the
+  # target a real directory of per-file store symlinks, so hand-installed
+  # skills next to it are untouched.
   skillsDir = ../../skills;
   skillNames = lib.attrNames (lib.filterAttrs (_: type: type == "directory") (builtins.readDir skillsDir));
   skillFiles = lib.listToAttrs (lib.concatMap (name:

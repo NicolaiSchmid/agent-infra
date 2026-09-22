@@ -242,16 +242,18 @@ function makeDispatcher(origin: string, token: string, db: Database): Dispatcher
     const text = await res.text();
     const detail = text || res.statusText || "(empty response body)";
     if (res.status === 401 || res.status === 403) fail(`T3 refused the bearer token (${res.status}): ${detail}`);
-    if (!res.ok) fail(`${command.type} dispatch failed (${res.status}): ${detail}`);
+    if (!res.ok) {
+      // T3 answers a rejected command with a generic 500 (orchestration_dispatch_failed);
+      // the actual reason is only in the command's receipt row.
+      let reason: string | null = null;
+      for (let i = 0; i < 10 && reason === null; i++) {
+        reason = receipt.get(commandId)?.error ?? null;
+        if (reason === null) await sleep(150);
+      }
+      fail(`${command.type} dispatch failed (${res.status}): ${reason ?? detail}`);
+    }
     const sequence = (JSON.parse(text) as { sequence?: number }).sequence;
     if (typeof sequence !== "number") fail(`${command.type} dispatch returned no sequence: ${text}`);
-    // The receipt row is written once the command is applied; rejections land there.
-    for (let i = 0; i < 20; i++) {
-      const row = receipt.get(commandId);
-      if (row?.status === "rejected") fail(`${command.type} was rejected by T3: ${row.error}`);
-      if (row) break;
-      await sleep(150);
-    }
     return sequence;
   };
 }
@@ -266,9 +268,11 @@ async function dispatchThread(
   const threadId = crypto.randomUUID();
   const common = { modelSelection, runtimeMode, interactionMode: "default" };
 
-  createWorktree(plan);
   let createSequence: number;
   try {
+    // `git worktree add -b` can create the branch and then fail on the path, so
+    // the rollback covers worktree creation as well as a rejected thread.create.
+    createWorktree(plan);
     createSequence = await dispatch({
       type: "thread.create",
       threadId,
@@ -283,12 +287,18 @@ async function dispatchThread(
     throw e;
   }
 
-  const turnSequence = await dispatch({
-    type: "thread.turn.start",
-    threadId,
-    message: { messageId: crypto.randomUUID(), role: "user", text: plan.message, attachments: [] },
-    ...common,
-  });
+  let turnSequence: number;
+  try {
+    turnSequence = await dispatch({
+      type: "thread.turn.start",
+      threadId,
+      message: { messageId: crypto.randomUUID(), role: "user", text: plan.message, attachments: [] },
+      ...common,
+    });
+  } catch (e) {
+    // The thread now exists in T3 and owns the worktree; leave both and say where they are.
+    fail(`${(e as Error).message}\n  thread ${threadId} was created without a turn; worktree ${plan.worktreePath}`);
+  }
 
   const turnQuery = db.query<{ latest_turn_id: string | null }, [string]>(
     "select latest_turn_id from projection_threads where thread_id = ?",
@@ -307,6 +317,16 @@ async function dispatchThread(
 // ---------- main ----------
 
 function parse(argv: string[]) {
+  try {
+    return parseArgsOrThrow(argv);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code ?? "";
+    if (code.startsWith("ERR_PARSE_ARGS")) throw new UsageError((e as Error).message);
+    throw e;
+  }
+}
+
+function parseArgsOrThrow(argv: string[]) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -344,9 +364,13 @@ function buildPlans(db: Database, values: ReturnType<typeof parse>["values"], po
   const specs: { title: string; slug: string; message: string }[] = [];
   if (values.batch) {
     if (positionals.length === 0) throw new UsageError("--batch needs at least one prompt file");
+    if (values.title || values.slug || values.message || values["message-file"]) {
+      throw new UsageError("--batch derives title, slug and message from the files; drop -t/-m/-f/--slug");
+    }
     for (const file of positionals) {
       const text = readText(file);
-      const heading = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+      const prose = text.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
+      const heading = prose.match(/^#[ \t]+(\S.*)$/m)?.[1]?.trim();
       const stem = basename(file).replace(/\.[^.]+$/, "");
       specs.push({ title: heading ?? stem, slug: slugify(stem), message: prelude + text });
     }

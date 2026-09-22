@@ -57,11 +57,14 @@ convention, what to build, how to verify, how to hand over. Batch dispatches usu
    `finally` block, on success and on failure.
 4. `git fetch origin <base>` and `git worktree add -b t3code/<slug> <path> origin/<base>`.
 5. `POST /api/orchestration/dispatch` with `thread.create`, then `thread.turn.start`.
-   Each command's receipt is read back from `orchestration_command_receipts`; a rejected
-   `thread.create` rolls the worktree and branch back and prints the receipt's error.
+   If T3 rejects a command, the script reads the reason from the command's row in
+   `orchestration_command_receipts` and prints it. A failed worktree step or a rejected
+   `thread.create` rolls the worktree and branch back. A rejected `thread.turn.start` leaves
+   the thread and its worktree in place (T3 owns them by then) and prints the thread id.
 6. Waits up to 10 s for `projection_threads.latest_turn_id` to be set, then prints the result.
 
-Exit codes: 0 ok, 1 dispatch or environment error, 2 usage error.
+Exit codes: 0 ok, 1 dispatch or environment error, 2 usage error (including `-m` values that
+start with `-`; use `--message=...` or `-f` for those).
 
 ## Gotchas (learned the hard way; do not rediscover)
 
@@ -84,6 +87,10 @@ Exit codes: 0 ok, 1 dispatch or environment error, 2 usage error.
 - **Do not hardcode host/port.** `server-runtime.json` (`{host, port, origin, pid, startedAt}`)
   is the source of truth; the server is loopback-only on the box.
 - **Bad token** is a 401 with `{"code":"auth_invalid"}`; the script reports it as such.
+- **Rejections are a generic 500.** A command T3 refuses (bad runtime mode, unknown project,
+  duplicate thread id) comes back as `orchestration_dispatch_failed` with no detail; the real
+  reason is only in `orchestration_command_receipts.error` for that `command_id`. A 200 means
+  the command was accepted and its receipt already written.
 
 ## Environment
 
