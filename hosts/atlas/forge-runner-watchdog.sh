@@ -8,6 +8,8 @@ repos=(
   NicolaiSchmid/june
   NicolaiSchmid/fifthset
   NicolaiSchmid/mietprofi
+  NicolaiSchmid/mosaic
+  NicolaiSchmid/nicolaischmid.de
 )
 
 linux_forge='["self-hosted","Linux","ARM64"]'

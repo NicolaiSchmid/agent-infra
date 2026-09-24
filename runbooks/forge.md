@@ -73,6 +73,8 @@ forge-macos-fifthset   forge-linux-fifthset
 forge-macos-mietprofi  forge-linux-mietprofi
 forge-macos-nunc-immo  forge-linux-nunc-immo
 forge-macos-wasc-io    forge-linux-wasc-io
+forge-macos-mosaic     forge-linux-mosaic
+forge-macos-nicolaischmid-de  forge-linux-nicolaischmid-de
 ```
 
 Create registration tokens in the target GitHub repository or organization.
@@ -109,7 +111,7 @@ of Node heap. Resize a running instance with
 
 ### Runner selection from workflows
 
-Workflows in june, fifthset and mietprofi do not hard-code labels. They read
+Workflows in june, fifthset, mietprofi and mosaic do not hard-code labels. They read
 repository variables that the `forge-runner-watchdog` timer on atlas
 (`hosts/atlas/forge-runner-watchdog.nix`) keeps pointed at Forge while its
 runners are online, and at GitHub-hosted runners otherwise:
