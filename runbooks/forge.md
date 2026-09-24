@@ -95,9 +95,31 @@ limactl shell forge-linux
 cd /opt/actions-runner-SCOPE
 ./config.sh --url GITHUB_URL --token REGISTRATION_TOKEN \
   --name forge-linux-SCOPE --labels forge,linux,arm64,docker --unattended
+mkdir -p home && echo "HOME=$PWD/home" >> .env   # private HOME per runner
 sudo ./svc.sh install
 sudo ./svc.sh start
 ```
+
+Every Linux runner runs as the same VM user. Without the per-runner `HOME`
+in `.env`, concurrent jobs race in `~/setup-pnpm` and the pnpm store
+(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM is sized for several concurrent
+jobs (6 CPUs, 12 GiB); a Next.js production build alone needs more than 2 GiB
+of Node heap. Resize a running instance with
+`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 12 && limactl start forge-linux`.
+
+### Runner selection from workflows
+
+Workflows in june, fifthset and mietprofi do not hard-code labels. They read
+repository variables that the `forge-runner-watchdog` timer on atlas
+(`hosts/atlas/forge-runner-watchdog.nix`) keeps pointed at Forge while its
+runners are online, and at GitHub-hosted runners otherwise:
+
+```yaml
+runs-on: ${{ fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
+runs-on: ${{ fromJSON(vars.MACOS_RUNS_ON || '"macos-15"') }}
+```
+
+`journalctl -u forge-runner-watchdog` on atlas shows every flip.
 
 Target the runners from a workflow with the labels GitHub assigned at
 registration (matching is cumulative; all listed labels must be present):
@@ -133,8 +155,13 @@ the Linux VM can control Docker inside that VM.
   with FileVault that means an unattended reboot can take every runner offline.
   Turn off "Install macOS updates" or expect to unlock the machine after
   updates.
-- All macOS runner services are per-user LaunchAgents and the Lima VM daemon
-  runs as the user, so the `nschmid10049` GUI session must be logged in.
+- All macOS runner services are per-user LaunchAgents and the Tailscale app is
+  a login item, so the `nschmid10049` GUI session must be logged in. After an
+  authenticated restart (macOS update) the machine boots to the login window:
+  the Lima VM and its Linux runners come back (system daemon) but Tailscale and
+  the macOS runners do not. Log in via Screen Sharing on the LAN
+  (`open vnc://forge.local`) to restore them; SSH works on the LAN meanwhile.
+  `launchctl bootstrap gui/<uid>` fails from SSH without a GUI session.
 
 ## Logs
 

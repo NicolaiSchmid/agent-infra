@@ -1,7 +1,7 @@
 arch: aarch64
 vmType: vz
-cpus: 4
-memory: 8GiB
+cpus: 6
+memory: 12GiB
 disk: 100GiB
 
 images:
@@ -20,7 +20,7 @@ provision:
       set -eux
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get install -y ca-certificates curl docker.io git jq
+      apt-get install -y ca-certificates curl docker.io git jq unzip zip
       systemctl enable --now docker
       usermod -aG docker "{{.User}}"
 
