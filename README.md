@@ -15,6 +15,11 @@ black   Hetzner bare-metal host
        ├─ hermes
        ├─ codex / claude
        └─ /srv/agents-state
+
+forge   Apple-silicon macOS build host
+  ├─ native T3 Code over Tailscale
+  ├─ native macOS/iOS GitHub Actions runner
+  └─ arm64 Linux VM GitHub Actions runner
 ```
 
 `black` is intentionally boring: RAID/NixOS, SSH, Tailscale, libvirt, and UDP
@@ -39,6 +44,7 @@ directly to one provider or physical install.
 
 - `hosts/black/` - bare-metal host, disks, libvirt, Atlas VM definition, network forwarding
 - `hosts/atlas/` - agent VM, state mounts, Tailscale nodes, T3/Hermes overrides
+- `hosts/forge/` - macOS build host, T3 Code, and runner foundations
 - `modules/keys.nix` - public SSH keys
 - `secrets/` - SOPS notes and encrypted runtime secrets
 - `runbooks/` - bootstrap and migration procedures
@@ -130,5 +136,6 @@ ssh atlas 'docker ps --filter name=hermes'
 ## Runbooks
 
 - [Bootstrap](runbooks/bootstrap.md)
+- [Forge operations](runbooks/forge.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)
