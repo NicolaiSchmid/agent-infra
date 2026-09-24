@@ -40,6 +40,7 @@ directly to one provider or physical install.
 - `hosts/black/` - bare-metal host, disks, libvirt, Atlas VM definition, network forwarding
 - `hosts/atlas/` - agent VM, state mounts, Tailscale nodes, T3/Hermes overrides
 - `modules/keys.nix` - public SSH keys
+- `skills/` - global agent skills installed for Claude Code and Codex (see below)
 - `secrets/` - SOPS notes and encrypted runtime secrets
 - `runbooks/` - bootstrap and migration procedures
 
@@ -75,6 +76,18 @@ old `domovoi` hostname still points to it.
 Atlas also includes a small `gh` wrapper for T3 Code that collapses repeated
 `gh pr list --head ...` polling into a per-repo REST cache. This keeps T3's PR
 status checks from burning GitHub GraphQL quota.
+
+## Global Agent Skills
+
+Skills that every Claude Code and Codex session on Atlas should have live in
+`skills/<name>/` (a `SKILL.md` plus any scripts). `hosts/atlas/configuration.nix`
+installs each directory for `nicolai` into both `~/.claude/skills/<name>` and
+`~/.codex/skills/<name>` through home-manager: the target is a real directory
+of per-file symlinks into the Nix store, so skills dropped in by hand next to
+them are left alone. Adding a skill is adding a directory and rebuilding Atlas.
+
+- `t3-thread` - dispatch a new T3 Code thread (worktree, token, orchestration
+  commands) from any agent session. Runbook: [T3 thread dispatch](runbooks/t3-thread.md).
 
 ## Common Commands
 
@@ -130,5 +143,6 @@ ssh atlas 'docker ps --filter name=hermes'
 ## Runbooks
 
 - [Bootstrap](runbooks/bootstrap.md)
+- [T3 thread dispatch and global skills](runbooks/t3-thread.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)
