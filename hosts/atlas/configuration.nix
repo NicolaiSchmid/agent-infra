@@ -19,6 +19,7 @@ in {
     ./disko.nix
     ./sops.nix
     ./tailscale.nix
+    ./forge-runner-watchdog.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"

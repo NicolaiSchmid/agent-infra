@@ -19,6 +19,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    nix-darwin = {
+      url = "github:nix-darwin/nix-darwin/nix-darwin-26.05";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # Reuse Nicolai's existing agent VM/user environment. This input points at
     # the darwin flake subdir because that is where the current NixOS agent
     # modules live.
@@ -31,6 +36,7 @@
   outputs = inputs @ {
     self,
     nixpkgs,
+    nix-darwin,
     ...
   }: let
     system = "x86_64-linux";
@@ -72,6 +78,12 @@
         inputs.sops-nix.nixosModules.sops
         ./hosts/atlas/configuration.nix
       ];
+    };
+
+    darwinConfigurations.forge = nix-darwin.lib.darwinSystem {
+      system = "aarch64-darwin";
+      specialArgs = {inherit inputs;};
+      modules = [./hosts/forge/configuration.nix];
     };
 
     checks.${system} = {
