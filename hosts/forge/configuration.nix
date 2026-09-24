@@ -26,6 +26,7 @@
     git-lfs
     go
     htop
+    jdk17
     jq
     lazygit
     lsof
@@ -92,6 +93,14 @@ in {
     };
   };
   nixpkgs.config.allowUnfree = true;
+
+  # An unattended macOS update reboot parks the machine at the FileVault unlock
+  # screen and takes every runner offline; keep updates manual.
+  system.defaults.SoftwareUpdate.AutomaticallyInstallMacOSUpdates = false;
+
+  # Never sleep, on AC or battery; lid-close sleep is disabled separately with
+  # `pmset -c disablesleep 1`.
+  power.sleep.computer = "never";
 
   environment.systemPackages =
     cliTools
