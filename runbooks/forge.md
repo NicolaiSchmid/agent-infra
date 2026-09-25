@@ -135,6 +135,12 @@ Each scope has exactly one Linux and one macOS runner, so jobs inside one
 repository run serially per platform. Register a second runner directory for a
 scope if that becomes a bottleneck.
 
+The Linux VM is arm64. `qemu-user-static` registers a binfmt handler so
+x86_64-only Linux binaries shipped in npm packages still run (slower);
+`hermes-compiler`'s `hermesc`, used by `expo export`, is the known case.
+Rosetta would be faster but needs `softwareupdate --install-rosetta` (root) on
+the host plus `rosetta: {enabled: true, binfmt: true}` in the Lima config.
+
 The Linux VM ships only `git`, `jq`, `curl`, `python3`, and Docker. Toolchains
 come from `actions/setup-*` steps, which support arm64 Linux. Jobs that rely on
 the GitHub-hosted image's preinstalled tooling (`JAVA_HOME_17_X64`,

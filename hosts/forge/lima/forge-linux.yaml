@@ -20,7 +20,9 @@ provision:
       set -eux
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get install -y ca-certificates curl docker.io git jq unzip zip
+      # qemu-user-static + binfmt-support: run x86_64-only npm binaries (e.g.
+      # hermes-compiler's hermesc used by `expo export`) on the arm64 VM.
+      apt-get install -y ca-certificates curl docker.io git jq unzip zip qemu-user-static binfmt-support
       systemctl enable --now docker
       usermod -aG docker "{{.User}}"
 
