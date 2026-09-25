@@ -83,7 +83,9 @@
       # Protect t3code/Hermes on the same VM from a runaway job.
       MemoryHigh = "10G";
       MemoryMax = "12G";
-      Restart = "always";
+      # The module sets Restart=no (it relies on RestartForceExitStatus=2); we
+      # want a crashed listener back without manual intervention.
+      Restart = lib.mkForce "on-failure";
       RestartSec = 10;
     };
   };
