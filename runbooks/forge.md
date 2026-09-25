@@ -75,6 +75,7 @@ forge-macos-nunc-immo  forge-linux-nunc-immo
 forge-macos-wasc-io    forge-linux-wasc-io
 forge-macos-mosaic     forge-linux-mosaic
 forge-macos-nicolaischmid-de  forge-linux-nicolaischmid-de
+forge-macos-steno      forge-linux-steno
 ```
 
 Create registration tokens in the target GitHub repository or organization.
