@@ -130,7 +130,10 @@ Chromium) peaked at 10 GiB, so heavy jobs are serialized across runners with
 a shared lock implemented as runner hooks in `/opt/forge-hooks/`:
 `job-started.sh` blocks until it can `mkdir /var/lock/forge-heavy` when
 `"owner/repo job_id"` matches a regex in `heavy-jobs.txt`; `job-completed.sh`
-releases it. Locks older than two hours are treated as stale. The wait shows
+releases it. The lock records its holder's `Runner.Worker` PID; a lock whose
+holder is gone (job cancelled or killed before the completed hook ran) or older
+than two hours is treated as stale, and a waiter whose own job was cancelled
+exits instead of lingering. The wait shows
 up in the job's "Set up runner" step and counts against `timeout-minutes`.
 Edit `heavy-jobs.txt` on the VM (and here) to add jobs; no restart needed.
 Runner units also carry `Restart=always` so an OOM-killed job cannot leave a
