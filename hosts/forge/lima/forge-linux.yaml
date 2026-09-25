@@ -71,16 +71,25 @@ provision:
         if [[ "$key" =~ $pattern ]]; then heavy=1; break; fi
       done < "$LIST"
       [ "$heavy" = 1 ] || exit 0
+      # the Runner.Worker that runs this job: nearest ancestor named Runner.Worker
+      worker=$PPID
+      while [ "$worker" -gt 1 ] && ! grep -q "Runner.Worker" "/proc/$worker/cmdline" 2>/dev/null; do
+        worker=$(awk '/^PPid:/{print $2}' "/proc/$worker/status" 2>/dev/null || echo 1)
+      done
       echo "forge: \"$key\" is a heavy job; acquiring the shared heavy-job lock"
       start=$(date +%s)
       while ! mkdir "$LOCKDIR" 2>/dev/null; do
-        if [ -f "$LOCKDIR/started" ] && [ $(( $(date +%s) - $(cat "$LOCKDIR/started" 2>/dev/null || echo 0) )) -gt 7200 ]; then
-          echo "forge: removing stale heavy-job lock held by $(cat "$LOCKDIR/owner" 2>/dev/null)"
+        holder_pid=$(cat "$LOCKDIR/pid" 2>/dev/null || echo 0)
+        holder_age=$(( $(date +%s) - $(cat "$LOCKDIR/started" 2>/dev/null || echo 0) ))
+        if [ "$holder_pid" -gt 1 ] && ! kill -0 "$holder_pid" 2>/dev/null || [ "$holder_age" -gt 7200 ]; then
+          echo "forge: removing stale heavy-job lock held by $(cat "$LOCKDIR/owner" 2>/dev/null) (pid $holder_pid, ${holder_age}s)"
           rm -rf "$LOCKDIR"; continue
         fi
+        # our own job was cancelled while waiting: do not linger
+        kill -0 "$worker" 2>/dev/null || exit 0
         sleep 10
       done
-      date +%s > "$LOCKDIR/started"; printf "%s\n" "$key" > "$LOCKDIR/owner"
+      date +%s > "$LOCKDIR/started"; printf "%s\n" "$key" > "$LOCKDIR/owner"; printf "%s\n" "$worker" > "$LOCKDIR/pid"
       echo "forge: heavy-job lock acquired after $(( $(date +%s) - start ))s"
       EOF_STARTED
       cat > /opt/forge-hooks/job-completed.sh <<'EOF_COMPLETED'
