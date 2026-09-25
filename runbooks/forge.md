@@ -141,8 +141,12 @@ x86_64-only Linux binaries shipped in npm packages still run (slower);
 Rosetta would be faster but needs `softwareupdate --install-rosetta` (root) on
 the host plus `rosetta: {enabled: true, binfmt: true}` in the Lima config.
 
-The Linux VM ships only `git`, `jq`, `curl`, `python3`, and Docker. Toolchains
-come from `actions/setup-*` steps, which support arm64 Linux. Jobs that rely on
+The Linux VM ships `git`, `jq`, `curl`, `python3`/`pip3`, Docker, Node 24 LTS
+with `npm`/`npx`, `yarn` and `pnpm` (corepack shims), `gh`, and
+`build-essential`. Pinned toolchain versions still come from `actions/setup-*`
+steps, which support arm64 Linux; the system Node exists so that actions which
+shell out to `yarn` or `npm` without a setup step (e.g.
+`expo/expo-github-action`) find them, as they do on the hosted image. Jobs that rely on
 the GitHub-hosted image's preinstalled tooling (`JAVA_HOME_17_X64`,
 `ANDROID_HOME`, x64-only binaries) stay on `ubuntu-latest`; the fifthset Android
 build is the current example.
