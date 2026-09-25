@@ -24,6 +24,12 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Newer nixpkgs only for the GitHub Actions runner package: GitHub retires
+    # runner versions quickly (2.335.1 in nixos-26.05 is already refused with
+    # "deprecated and cannot receive messages"). Bump with
+    # `nix flake update nixpkgs-runner`.
+    nixpkgs-runner.url = "github:NixOS/nixpkgs/nixos-unstable";
+
     # Reuse Nicolai's existing agent VM/user environment. This input points at
     # the darwin flake subdir because that is where the current NixOS agent
     # modules live.

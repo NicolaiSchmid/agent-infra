@@ -13,8 +13,11 @@
   config,
   pkgs,
   lib,
+  inputs,
   ...
 }: let
+  # Runner from a newer nixpkgs (see flake.nix, nixpkgs-runner).
+  runnerPackage = inputs.nixpkgs-runner.legacyPackages.${pkgs.stdenv.hostPlatform.system}.github-runner;
   owner = "NicolaiSchmid";
   # attribute name -> repository (attribute names are used in runner/user names)
   repos = {
@@ -58,6 +61,7 @@
   ];
   mkRunner = name: repo: {
     enable = true;
+    package = runnerPackage;
     url = "https://github.com/${owner}/${repo}";
     name = "atlas-linux-${name}";
     tokenFile = tokenFile;
