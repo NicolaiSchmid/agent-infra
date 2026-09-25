@@ -14,6 +14,7 @@ black   Hetzner bare-metal host
        ├─ t3code
        ├─ hermes
        ├─ codex / claude
+       ├─ github-runners (Linux x86_64, one per repo)
        └─ /srv/agents-state
 
 forge   Apple-silicon macOS build host
@@ -137,5 +138,6 @@ ssh atlas 'docker ps --filter name=hermes'
 
 - [Bootstrap](runbooks/bootstrap.md)
 - [Forge operations](runbooks/forge.md)
+- [Atlas Linux runners](runbooks/atlas-runners.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)

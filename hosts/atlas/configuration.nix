@@ -20,6 +20,7 @@ in {
     ./sops.nix
     ./tailscale.nix
     ./forge-runner-watchdog.nix
+    ./github-runners.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
