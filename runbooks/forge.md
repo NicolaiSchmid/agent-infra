@@ -100,8 +100,17 @@ cd /opt/actions-runner-SCOPE
   --name forge-linux-SCOPE --labels forge,linux,arm64,docker --unattended
 mkdir -p home && echo "HOME=$PWD/home" >> .env   # private HOME per runner
 sudo ./svc.sh install
+unit=$(systemctl list-unit-files --no-legend 'actions.runner.*SCOPE*.service' | awk '{print $1}')
+sudo mkdir -p /etc/systemd/system/$unit.d
+printf '[Service]\nRestart=always\nRestartSec=10\nKillMode=control-group\n' | sudo tee /etc/systemd/system/$unit.d/restart.conf
+sudo systemctl daemon-reload
 sudo ./svc.sh start
 ```
+
+The `Restart=always` drop-in matters: `svc.sh` installs units without a restart
+policy, and a job that gets OOM-killed by the kernel (mosaic E2E peaked at
+10 GiB) leaves the unit `failed` and the runner offline until someone restarts
+it. All eight Linux units carry the drop-in as of 2026-09-25.
 
 Every Linux runner runs as the same VM user. Without the per-runner `HOME`
 in `.env`, concurrent jobs race in `~/setup-pnpm` and the pnpm store
