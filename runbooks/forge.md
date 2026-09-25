@@ -169,7 +169,7 @@ Rosetta would be faster but needs `softwareupdate --install-rosetta` (root) on
 the host plus `rosetta: {enabled: true, binfmt: true}` in the Lima config.
 
 The Linux VM ships `git`, `jq`, `curl`, `python3`/`pip3`, Docker, Node 24 LTS
-with `npm`/`npx`, `yarn` and `pnpm` (corepack shims), `gh`, and
+with `npm`/`npx`, `yarn` 1.x and `pnpm` (installed with `npm -g`, not corepack shims, which refuse to run in a project that pins another `packageManager`), `gh`, and
 `build-essential`. Pinned toolchain versions still come from `actions/setup-*`
 steps, which support arm64 Linux; the system Node exists so that actions which
 shell out to `yarn` or `npm` without a setup step (e.g.

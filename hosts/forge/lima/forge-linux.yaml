@@ -41,9 +41,10 @@ provision:
         > /etc/apt/sources.list.d/github-cli.list
       apt-get update
       apt-get install -y nodejs gh build-essential python3-pip pkg-config libssl-dev
-      corepack enable --install-directory /usr/local/bin
-      COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare yarn@1 --activate || true
-      COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare pnpm@latest --activate || true
+      # Real yarn/pnpm binaries, not corepack shims: a corepack shim refuses to
+      # run inside a project whose package.json pins another packageManager
+      # (june pins pnpm; expo-github-action still calls `yarn global add`).
+      npm install -g yarn@1 pnpm@latest
 
       # Runner hooks: serialize heavy jobs (full test suites, E2E, production
       # builds) across all runners on this VM with one shared lock. Each
