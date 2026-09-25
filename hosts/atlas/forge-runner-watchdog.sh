@@ -10,6 +10,7 @@ repos=(
   NicolaiSchmid/mietprofi
   NicolaiSchmid/mosaic
   NicolaiSchmid/nicolaischmid.de
+  NicolaiSchmid/steno
 )
 
 linux_forge='["self-hosted","Linux","ARM64"]'

@@ -75,6 +75,7 @@ forge-macos-nunc-immo  forge-linux-nunc-immo
 forge-macos-wasc-io    forge-linux-wasc-io
 forge-macos-mosaic     forge-linux-mosaic
 forge-macos-nicolaischmid-de  forge-linux-nicolaischmid-de
+forge-macos-steno      forge-linux-steno
 ```
 
 Create registration tokens in the target GitHub repository or organization.
@@ -98,16 +99,42 @@ cd /opt/actions-runner-SCOPE
 ./config.sh --url GITHUB_URL --token REGISTRATION_TOKEN \
   --name forge-linux-SCOPE --labels forge,linux,arm64,docker --unattended
 mkdir -p home && echo "HOME=$PWD/home" >> .env   # private HOME per runner
+cat >> .env <<'EOF'
+ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/forge-hooks/job-started.sh
+ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/forge-hooks/job-completed.sh
+EOF
 sudo ./svc.sh install
+unit=$(systemctl list-unit-files --no-legend 'actions.runner.*SCOPE*.service' | awk '{print $1}')
+sudo mkdir -p /etc/systemd/system/$unit.d
+printf '[Service]\nRestart=always\nRestartSec=10\nKillMode=control-group\n' | sudo tee /etc/systemd/system/$unit.d/restart.conf
+sudo systemctl daemon-reload
 sudo ./svc.sh start
 ```
 
+The `Restart=always` drop-in matters: `svc.sh` installs units without a restart
+policy, and a job that gets OOM-killed by the kernel (mosaic E2E peaked at
+10 GiB) leaves the unit `failed` and the runner offline until someone restarts
+it. All eight Linux units carry the drop-in as of 2026-09-25.
+
 Every Linux runner runs as the same VM user. Without the per-runner `HOME`
 in `.env`, concurrent jobs race in `~/setup-pnpm` and the pnpm store
-(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM is sized for several concurrent
-jobs (6 CPUs, 12 GiB); a Next.js production build alone needs more than 2 GiB
-of Node heap. Resize a running instance with
-`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 12 && limactl start forge-linux`.
+(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM has 6 CPUs and 16 GiB (the host
+keeps 8 GiB for macOS and Xcode); a Next.js production build alone needs more
+than 2 GiB of Node heap. Resize a running instance with
+`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 16 && limactl start forge-linux`.
+
+### Heavy-job serialization
+
+Eight repositories share the VM, and one E2E run (Next.js server plus
+Chromium) peaked at 10 GiB, so heavy jobs are serialized across runners with
+a shared lock implemented as runner hooks in `/opt/forge-hooks/`:
+`job-started.sh` blocks until it can `mkdir /var/lock/forge-heavy` when
+`"owner/repo job_id"` matches a regex in `heavy-jobs.txt`; `job-completed.sh`
+releases it. Locks older than two hours are treated as stale. The wait shows
+up in the job's "Set up runner" step and counts against `timeout-minutes`.
+Edit `heavy-jobs.txt` on the VM (and here) to add jobs; no restart needed.
+Runner units also carry `Restart=always` so an OOM-killed job cannot leave a
+runner offline.
 
 ### Runner selection from workflows
 
@@ -141,8 +168,12 @@ x86_64-only Linux binaries shipped in npm packages still run (slower);
 Rosetta would be faster but needs `softwareupdate --install-rosetta` (root) on
 the host plus `rosetta: {enabled: true, binfmt: true}` in the Lima config.
 
-The Linux VM ships only `git`, `jq`, `curl`, `python3`, and Docker. Toolchains
-come from `actions/setup-*` steps, which support arm64 Linux. Jobs that rely on
+The Linux VM ships `git`, `jq`, `curl`, `python3`/`pip3`, Docker, Node 24 LTS
+with `npm`/`npx`, `yarn` 1.x and `pnpm` (installed with `npm -g`, not corepack shims, which refuse to run in a project that pins another `packageManager`), `gh`, and
+`build-essential`. Pinned toolchain versions still come from `actions/setup-*`
+steps, which support arm64 Linux; the system Node exists so that actions which
+shell out to `yarn` or `npm` without a setup step (e.g.
+`expo/expo-github-action`) find them, as they do on the hosted image. Jobs that rely on
 the GitHub-hosted image's preinstalled tooling (`JAVA_HOME_17_X64`,
 `ANDROID_HOME`, x64-only binaries) stay on `ubuntu-latest`; the fifthset Android
 build is the current example.

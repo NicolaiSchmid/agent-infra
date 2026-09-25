@@ -1,7 +1,7 @@
 arch: aarch64
 vmType: vz
 cpus: 6
-memory: 12GiB
+memory: 16GiB
 disk: 100GiB
 
 images:
@@ -25,6 +25,75 @@ provision:
       apt-get install -y ca-certificates curl docker.io git jq unzip zip qemu-user-static binfmt-support
       systemctl enable --now docker
       usermod -aG docker "{{.User}}"
+
+      # Baseline tooling the GitHub-hosted ubuntu image provides and workflows
+      # assume without a setup step: Node LTS with npm/npx, yarn + pnpm via
+      # corepack (expo/expo-github-action installs eas-cli with yarn by
+      # default), gh, and a C toolchain for native npm modules.
+      if ! command -v node >/dev/null; then
+        curl -fsSL https://deb.nodesource.com/setup_24.x | bash - >/dev/null
+      fi
+      install -d -m 0755 /etc/apt/keyrings
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+      chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list
+      apt-get update
+      apt-get install -y nodejs gh build-essential python3-pip pkg-config libssl-dev
+      # Real yarn/pnpm binaries, not corepack shims: a corepack shim refuses to
+      # run inside a project whose package.json pins another packageManager
+      # (june pins pnpm; expo-github-action still calls `yarn global add`).
+      npm install -g yarn@1 pnpm@latest
+
+      # Runner hooks: serialize heavy jobs (full test suites, E2E, production
+      # builds) across all runners on this VM with one shared lock. Each
+      # runner's .env must point ACTIONS_RUNNER_HOOK_JOB_STARTED/COMPLETED at
+      # these scripts (see runbooks/forge.md, "Register the runners").
+      install -d -m 0755 /opt/forge-hooks
+      cat > /opt/forge-hooks/heavy-jobs.txt <<'EOF_HEAVY'
+      # One extended regex per line, matched against "owner/repo job_id".
+      NicolaiSchmid/mosaic (tier1|quality)
+      NicolaiSchmid/june (test-build|static|quality)
+      NicolaiSchmid/mietprofi (checks|validate)
+      NicolaiSchmid/fifthset checks
+      NicolaiSchmid/steno (build|test)
+      EOF_HEAVY
+      cat > /opt/forge-hooks/job-started.sh <<'EOF_STARTED'
+      #!/usr/bin/env bash
+      set -u
+      LIST=/opt/forge-hooks/heavy-jobs.txt
+      LOCKDIR=/var/lock/forge-heavy
+      key="${GITHUB_REPOSITORY:-?} ${GITHUB_JOB:-?}"
+      heavy=0
+      while IFS= read -r pattern; do
+        case "$pattern" in ""|\#*) continue ;; esac
+        if [[ "$key" =~ $pattern ]]; then heavy=1; break; fi
+      done < "$LIST"
+      [ "$heavy" = 1 ] || exit 0
+      echo "forge: \"$key\" is a heavy job; acquiring the shared heavy-job lock"
+      start=$(date +%s)
+      while ! mkdir "$LOCKDIR" 2>/dev/null; do
+        if [ -f "$LOCKDIR/started" ] && [ $(( $(date +%s) - $(cat "$LOCKDIR/started" 2>/dev/null || echo 0) )) -gt 7200 ]; then
+          echo "forge: removing stale heavy-job lock held by $(cat "$LOCKDIR/owner" 2>/dev/null)"
+          rm -rf "$LOCKDIR"; continue
+        fi
+        sleep 10
+      done
+      date +%s > "$LOCKDIR/started"; printf "%s\n" "$key" > "$LOCKDIR/owner"
+      echo "forge: heavy-job lock acquired after $(( $(date +%s) - start ))s"
+      EOF_STARTED
+      cat > /opt/forge-hooks/job-completed.sh <<'EOF_COMPLETED'
+      #!/usr/bin/env bash
+      set -u
+      LOCKDIR=/var/lock/forge-heavy
+      key="${GITHUB_REPOSITORY:-?} ${GITHUB_JOB:-?}"
+      if [ -f "$LOCKDIR/owner" ] && [ "$(cat "$LOCKDIR/owner")" = "$key" ]; then
+        rm -rf "$LOCKDIR"; echo "forge: heavy-job lock released"
+      fi
+      EOF_COMPLETED
+      sed -i 's/^      //' /opt/forge-hooks/heavy-jobs.txt /opt/forge-hooks/job-started.sh /opt/forge-hooks/job-completed.sh
+      chmod 0755 /opt/forge-hooks/*.sh
 
       runner_version=2.337.0
       runner_archive="actions-runner-linux-arm64-${runner_version}.tar.gz"
