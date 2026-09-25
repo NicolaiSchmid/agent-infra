@@ -99,6 +99,10 @@ cd /opt/actions-runner-SCOPE
 ./config.sh --url GITHUB_URL --token REGISTRATION_TOKEN \
   --name forge-linux-SCOPE --labels forge,linux,arm64,docker --unattended
 mkdir -p home && echo "HOME=$PWD/home" >> .env   # private HOME per runner
+cat >> .env <<'EOF'
+ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/forge-hooks/job-started.sh
+ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/forge-hooks/job-completed.sh
+EOF
 sudo ./svc.sh install
 unit=$(systemctl list-unit-files --no-legend 'actions.runner.*SCOPE*.service' | awk '{print $1}')
 sudo mkdir -p /etc/systemd/system/$unit.d
@@ -114,10 +118,23 @@ it. All eight Linux units carry the drop-in as of 2026-09-25.
 
 Every Linux runner runs as the same VM user. Without the per-runner `HOME`
 in `.env`, concurrent jobs race in `~/setup-pnpm` and the pnpm store
-(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM is sized for several concurrent
-jobs (6 CPUs, 12 GiB); a Next.js production build alone needs more than 2 GiB
-of Node heap. Resize a running instance with
-`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 12 && limactl start forge-linux`.
+(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM has 6 CPUs and 16 GiB (the host
+keeps 8 GiB for macOS and Xcode); a Next.js production build alone needs more
+than 2 GiB of Node heap. Resize a running instance with
+`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 16 && limactl start forge-linux`.
+
+### Heavy-job serialization
+
+Eight repositories share the VM, and one E2E run (Next.js server plus
+Chromium) peaked at 10 GiB, so heavy jobs are serialized across runners with
+a shared lock implemented as runner hooks in `/opt/forge-hooks/`:
+`job-started.sh` blocks until it can `mkdir /var/lock/forge-heavy` when
+`"owner/repo job_id"` matches a regex in `heavy-jobs.txt`; `job-completed.sh`
+releases it. Locks older than two hours are treated as stale. The wait shows
+up in the job's "Set up runner" step and counts against `timeout-minutes`.
+Edit `heavy-jobs.txt` on the VM (and here) to add jobs; no restart needed.
+Runner units also carry `Restart=always` so an OOM-killed job cannot leave a
+runner offline.
 
 ### Runner selection from workflows
 
