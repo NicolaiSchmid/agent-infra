@@ -1,8 +1,9 @@
 # Persistent x86_64 Linux GitHub Actions runners for Nicolai's repositories.
 #
-# One runner per repository, each as a sandboxed systemd service (NixOS
-# services.github-runners): own static user, ProtectSystem=strict, PrivateUsers,
-# no Docker socket. A job can only write its own work dir and tool cache under
+# Two runners per repository (`atlas-linux-<repo>`, `atlas-linux-<repo>-2`), so
+# a short gate job is not stuck behind a 13-minute build of the same repository.
+# Each is a sandboxed systemd service (NixOS services.github-runners): own
+# static user, ProtectSystem=strict, PrivateUsers, no Docker socket. A job can only write its own work dir and tool cache under
 # /srv/agents-state/github-runners/; it cannot reach t3code, Hermes or the
 # agents' credentials. Labels: self-hosted, Linux, X64, atlas.
 #
@@ -28,6 +29,16 @@
     steno = "steno";
     nicolaischmid-de = "nicolaischmid.de";
   };
+  # Runners per repository. The first keeps the bare attribute name (and its
+  # registration, user and directories); additional ones get a -N suffix.
+  runnersPerRepo = 2;
+  runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
+    lib.genList (i:
+      lib.nameValuePair
+      (if i == 0 then name else "${name}-${toString (i + 1)}")
+      repo)
+    runnersPerRepo)
+  repos));
   baseDir = "/srv/agents-state/github-runners";
   tokenFile = "/srv/agents-state/secrets/github-runner.token";
   group = "github-runners";
@@ -84,9 +95,15 @@
     };
     serviceOverrides = {
       BindPaths = [(toolCacheOf name)];
-      # Protect t3code/Hermes on the same VM from a runaway job.
-      MemoryHigh = "10G";
-      MemoryMax = "12G";
+      # Protect t3code/Hermes on the same VM from a runaway job. Two runners
+      # per repository may run at once, so each gets less than before; the
+      # largest job seen (mosaic quality) peaks near 10 GiB, so MemoryMax stays
+      # above that and MemoryHigh throttles first.
+      MemoryHigh = "8G";
+      MemoryMax = "11G";
+      # Atlas is CPU-bound (load above its 12 vCPUs) mostly from the agents in
+      # t3code; CI should yield to them under contention (default weight 100).
+      CPUWeight = 50;
       # The module sets Restart=no (it relies on RestartForceExitStatus=2); we
       # want a crashed listener back without manual intervention.
       Restart = lib.mkForce "on-failure";
@@ -94,7 +111,7 @@
     };
   };
 in {
-  services.github-runners = lib.mapAttrs mkRunner repos;
+  services.github-runners = lib.mapAttrs mkRunner runners;
 
   users.groups.${group} = {};
   users.users = lib.mapAttrs' (name: _:
@@ -104,7 +121,7 @@ in {
       home = "${baseDir}/${name}";
       createHome = false;
     })
-  repos;
+  runners;
 
   systemd.tmpfiles.rules =
     ["d ${baseDir} 0755 root root -"]
@@ -113,5 +130,5 @@ in {
         "d ${workDirOf name} 0750 ${userOf name} ${group} -"
         "d ${toolCacheOf name} 0750 ${userOf name} ${group} -"
       ])
-      repos);
+      runners);
 }

@@ -13,12 +13,24 @@ repos=(
   NicolaiSchmid/steno
 )
 
+# Repositories whose Linux jobs run the same on x86_64 and arm64: when both
+# atlas and the Forge VM are online they get the arch-neutral label set, so
+# GitHub hands each job to whichever runner is idle and the Forge VM absorbs
+# overflow instead of sitting idle. june and fifthset stay x86_64-only: their
+# expo exports run hermesc, which is x86_64-only and emulated on arm64.
+arch_neutral=(
+  NicolaiSchmid/mietprofi
+  NicolaiSchmid/mosaic
+  NicolaiSchmid/nicolaischmid.de
+)
+
 linux_forge='["self-hosted","Linux","ARM64"]'
 linux_hosted='"ubuntu-latest"'
 macos_forge='["self-hosted","macOS","ARM64"]'
 macos_hosted='"macos-15"'
 
 linux_atlas='["self-hosted","Linux","X64"]'
+linux_any='["self-hosted","Linux"]'
 
 # online_count REPO HOST_LABEL OS_LABEL -> number of online runners carrying both labels
 online_count() {
@@ -39,11 +51,23 @@ set_var() {
   fi
 }
 
+# is_arch_neutral REPO
+is_arch_neutral() {
+  local r
+  for r in "${arch_neutral[@]}"; do [ "$r" = "$1" ] && return 0; done
+  return 1
+}
+
 for repo in "${repos[@]}"; do
-  # Linux: atlas (always-on x86_64 VM) first, then the Forge arm64 VM, then hosted.
-  if [ "$(online_count "$repo" atlas Linux)" -gt 0 ]; then
+  atlas_online=$(online_count "$repo" atlas Linux)
+  forge_online=$(online_count "$repo" forge Linux)
+  # Linux: atlas (always-on x86_64 VM) first, then the Forge arm64 VM, then
+  # hosted. Arch-neutral repositories use both tiers at once when both are up.
+  if [ "$atlas_online" -gt 0 ] && [ "$forge_online" -gt 0 ] && is_arch_neutral "$repo"; then
+    set_var "$repo" LINUX_RUNS_ON "$linux_any"
+  elif [ "$atlas_online" -gt 0 ]; then
     set_var "$repo" LINUX_RUNS_ON "$linux_atlas"
-  elif [ "$(online_count "$repo" forge Linux)" -gt 0 ]; then
+  elif [ "$forge_online" -gt 0 ]; then
     set_var "$repo" LINUX_RUNS_ON "$linux_forge"
   else
     set_var "$repo" LINUX_RUNS_ON "$linux_hosted"

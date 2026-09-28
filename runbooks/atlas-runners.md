@@ -1,17 +1,32 @@
 # Atlas Linux runners
 
 Persistent x86_64 GitHub Actions runners for Nicolai's repositories run on
-`atlas` as NixOS `services.github-runners` units, one per repository
-(`hosts/atlas/github-runners.nix`). They are the primary Linux runners; the
-Forge arm64 VM is the fallback, GitHub-hosted runners the last resort. The
+`atlas` as NixOS `services.github-runners` units, two per repository
+(`hosts/atlas/github-runners.nix`, `runnersPerRepo`). They are the primary
+Linux runners; the Forge arm64 VM is the fallback (and, for arch-neutral
+repositories, the overflow), GitHub-hosted runners the last resort. The
 `forge-runner-watchdog` timer on atlas keeps each repository's `LINUX_RUNS_ON`
 variable pointed at the best available tier.
 
 ```text
 atlas-linux-june        atlas-linux-fifthset    atlas-linux-mietprofi
 atlas-linux-mosaic      atlas-linux-steno       atlas-linux-nicolaischmid-de
+plus one -2 sibling of each (atlas-linux-june-2, ...)
 labels: self-hosted, Linux, X64, atlas
 ```
+
+Two per repository because one was a queue: mietprofi's sub-minute gate jobs
+waited 6 to 10 minutes and mosaic's 13 to 51 minutes behind a single 13-minute
+`quality` job (2026-09-28). The second runner is a full sibling (own user
+`ghr-<repo>-2`, own directories under `<repo>-2/`). Raise `runnersPerRepo`
+for more; every runner idles at about 100 MiB.
+
+Atlas is CPU-bound (load 17 on 12 vCPUs, mostly the agents in t3code plus one
+CI job), so runner units carry `CPUWeight=50`: under contention CI gets half
+the share of a default unit and the agents stay responsive. Memory limits are
+`MemoryHigh=8G` / `MemoryMax=11G` per runner; the largest job seen (mosaic
+`quality`) peaks near 10 GiB, so it still fits while a second job runs beside
+it.
 
 ## Isolation
 
@@ -21,8 +36,8 @@ group `github-runners`) inside the module's systemd sandbox
 (`ProtectSystem=strict`, `PrivateUsers`, `ProtectHome`, `NoNewPrivileges`, syscall
 filter). A job can write only its work dir and tool cache under
 `/srv/agents-state/github-runners/<repo>/` and cannot read t3code, Hermes or
-the agents' credentials in `/srv/agents-state/nicolai`. `MemoryMax=12G` per
-runner keeps a runaway job from starving t3code and Hermes. The repositories
+the agents' credentials in `/srv/agents-state/nicolai`. `MemoryMax=11G` and
+`CPUWeight=50` per runner keep a runaway job from starving t3code and Hermes. The repositories
 are private and only Nicolai's code runs here; this is protection against
 mistakes, not against a hostile pull request. Jobs that need Docker stay on the
 Forge VM (`forge-linux-*` runners, label `docker`).
