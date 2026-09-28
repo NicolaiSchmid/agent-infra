@@ -76,7 +76,22 @@ forge-macos-wasc-io    forge-linux-wasc-io
 forge-macos-mosaic     forge-linux-mosaic
 forge-macos-nicolaischmid-de  forge-linux-nicolaischmid-de
 forge-macos-steno      forge-linux-steno
+forge-macos-steno-2
+forge-macos-steno-3
+forge-macos-steno-4
 ```
+
+steno has four macOS runners because its Swift CI runs two macOS jobs per
+push and its agents open many pull requests at once; on 2026-09-28 ten runs
+were queued behind two runners. Additional runners for a scope are plain
+copies of an existing runner directory (`rsync -a --exclude _work --exclude
+_diag --exclude '.runner' --exclude '.credentials*' --exclude .env --exclude
+.path --exclude .service`), registered under the `-N` name with the same
+labels. Every macOS runner runs as `nschmid10049`; steno's workflow keeps
+build products per runner under `~/Library/Caches/steno-ci/<runner name>/`.
+Memory allows more: with two xcodebuilds running, the runner processes and
+builds use about 1.3 GiB and swap stays empty. The host has 10 cores, so more
+than four concurrent xcodebuilds would mostly contend for CPU.
 
 Create registration tokens in the target GitHub repository or organization.
 Tokens expire quickly, so generate them only when ready to run these commands.
@@ -161,9 +176,15 @@ runs-on: [self-hosted, Linux, ARM64]   # forge-linux VM (Ubuntu 24.04 arm64, Doc
 runs-on: [self-hosted, macOS, ARM64]   # native forge (Xcode, simulators)
 ```
 
-Each scope has exactly one Linux and one macOS runner, so jobs inside one
-repository run serially per platform. Register a second runner directory for a
-scope if that becomes a bottleneck.
+Each scope has one Linux runner and, except for steno, one macOS runner, so
+jobs inside one repository run serially per platform. Register another runner
+directory for a scope if that becomes a bottleneck (see steno above).
+
+For mietprofi, mosaic and nicolaischmid.de the watchdog sets `LINUX_RUNS_ON`
+to `["self-hosted","Linux"]` while both atlas and this VM are online, so
+GitHub gives each Linux job to whichever runner is idle and the VM takes the
+overflow. june and fifthset stay on atlas only: their expo exports run the
+x86_64-only `hermesc`, which is emulated here.
 
 The Linux VM is arm64. `qemu-user-static` registers a binfmt handler so
 x86_64-only Linux binaries shipped in npm packages still run (slower);
