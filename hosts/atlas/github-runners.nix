@@ -113,6 +113,18 @@
 in {
   services.github-runners = lib.mapAttrs mkRunner runners;
 
+  # A configuration switch must never abort a running CI job: changed unit
+  # files are loaded but the running listeners are left alone. Runners are
+  # rarely idle at the same time, so apply a change to an already-running unit
+  # with `systemctl restart github-runner-<name>` once that runner is not busy
+  # (see runbooks/atlas-runners.md). Cgroup limits (CPUWeight, Memory*) are
+  # applied to running units by the daemon reload anyway.
+  systemd.services = lib.mapAttrs' (name: _:
+    lib.nameValuePair "github-runner-${name}" {
+      restartIfChanged = false;
+    })
+  runners;
+
   users.groups.${group} = {};
   users.users = lib.mapAttrs' (name: _:
     lib.nameValuePair (userOf name) {

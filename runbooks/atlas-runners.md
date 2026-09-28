@@ -62,7 +62,20 @@ systemctl restart github-runner-june          # wipes its work dir, keeps toolca
 Deploy like any atlas change: push to `main`, then on atlas
 `nixos-rebuild switch --flake 'github:NicolaiSchmid/agent-infra/<sha>#atlas'`.
 Runner units are independent of t3code and Hermes; a switch that only touches
-them does not restart the agents. Prebuilt npm binaries run through nix-ld; the
+them does not restart the agents.
+
+Runner units have `restartIfChanged = false`: a switch never aborts a running
+job. New units start, and cgroup limits reach running units through the
+daemon reload, but anything else (labels, packages, environment) applies to an
+already-running runner only when that unit is restarted while idle:
+
+```bash
+for u in $(systemctl list-units 'github-runner-*' --no-legend --plain | awk '{print $1}'); do
+  systemctl show "$u" -p NeedDaemonReload -p ActiveState --value | paste -sd' '
+done
+# when GitHub shows the runner as not busy:
+systemctl restart github-runner-<name>
+``` Prebuilt npm binaries run through nix-ld; the
 units receive `NIX_LD`/`NIX_LD_LIBRARY_PATH` explicitly because the sandbox does
 not inherit `/etc/profile`. actions/setup-* downloads persist in
 `<repo>/toolcache` across restarts.
