@@ -210,10 +210,10 @@ in {
     SystemMaxUse=1G
     SystemKeepFree=5G
   '';
-  systemd.coredump.extraConfig = ''
-    MaxUse=512M
-    KeepFree=5G
-  '';
+  systemd.coredump.settings.Coredump = {
+    MaxUse = "512M";
+    KeepFree = "5G";
+  };
   networking.dhcpcd.allowInterfaces = ["enp1s0"];
 
   system.activationScripts.removeBrokenAgentHomeLinks.text = ''
