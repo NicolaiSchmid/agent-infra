@@ -182,7 +182,39 @@ in {
     "L+ /srv/agents-state/t3code/.aliases - - - - /srv/agents-state/nicolai/.aliases"
     "L+ /srv/agents-state/t3code/.zshenv - - - - /srv/agents-state/nicolai/.zshenv"
     "L+ /srv/agents-state/t3code/.zshrc - - - - /srv/agents-state/nicolai/.zshrc"
+    # Agent temp lives on the state disk (see the /tmp block below). The Node
+    # compile cache (npm CLI + vitest enable it, no eviction) is redirected there
+    # for anything that still resolves os.tmpdir() to /tmp.
+    "d /srv/agents-state/tmp 1777 root root 10d"
+    "d /srv/agents-state/tmp/node-compile-cache 1777 root root -"
+    "L+ /tmp/node-compile-cache - - - - /srv/agents-state/tmp/node-compile-cache"
+    "x /tmp/node-compile-cache"
   ];
+
+  # /tmp sits on the 118G root disk (vda2) and filled it on 2026-09-28: agents
+  # clone and build straight into /tmp, and npm/vitest keep an unbounded Node
+  # compile cache there (20G, ~1M files). t3code errored with SQLITE_FULL because
+  # SQLite temp files also go to /tmp. So: agent processes get TMPDIR on the 1 TB
+  # state disk, and the root-disk /tmp is aged after 2 days instead of 10.
+  boot.tmp.cleanOnBoot = true;
+  environment.etc."tmpfiles.d/tmp.conf".text = ''
+    q /tmp 1777 root root 2d
+    q /var/tmp 1777 root root 14d
+  '';
+  environment.sessionVariables.TMPDIR = "/srv/agents-state/tmp";
+
+  # Journal and core dumps share the root disk too; cap them. dhcpcd dumped core
+  # 300+ times (2G) because it tried to manage Docker veth interfaces and
+  # crashed in ipv6nd_expire when they vanished -- only enp1s0 needs DHCP.
+  services.journald.extraConfig = ''
+    SystemMaxUse=1G
+    SystemKeepFree=5G
+  '';
+  systemd.coredump.extraConfig = ''
+    MaxUse=512M
+    KeepFree=5G
+  '';
+  networking.dhcpcd.allowInterfaces = ["enp1s0"];
 
   system.activationScripts.removeBrokenAgentHomeLinks.text = ''
     for base in /srv/agents-state/nicolai /root; do
@@ -195,7 +227,15 @@ in {
     done
   '';
 
-  systemd.services.t3code.path = lib.mkBefore [ghPrShim];
+  systemd.services.t3code = {
+    path = lib.mkBefore [ghPrShim];
+    # Inherited by every claude/codex/opencode process t3code spawns.
+    environment.TMPDIR = "/srv/agents-state/tmp";
+    # Operational rule (README): t3code carries live agent work, so a rebuild
+    # must never bounce it. Unit changes are picked up by a manual
+    # `systemctl restart t3code` in a planned window.
+    restartIfChanged = false;
+  };
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
     ${pkgs.docker}/bin/docker run --rm --name hermes \

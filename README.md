@@ -126,6 +126,15 @@ Do not casually restart `t3code`, Hermes, Codex, Claude, or their subprocesses.
 They may be carrying active work. Config changes that affect service
 environment, PATH, or runtime mounts should be applied in a planned window.
 
+`nixos-rebuild switch` therefore never restarts `t3code` on atlas
+(`restartIfChanged = false`). After a rebuild that changed the unit (new `t3`
+pin, environment, PATH), finish the rollout with `systemctl restart t3code`
+on atlas once no agent work is in flight.
+
+Agent temp on atlas is `TMPDIR=/srv/agents-state/tmp` (state disk, aged after
+10 days); the root-disk `/tmp` is aged after 2 days and cleaned on boot. See
+`hosts/atlas/configuration.nix` for the 2026-09-28 root-disk-full incident.
+
 For a quick topology and health check:
 
 ```bash
