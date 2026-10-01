@@ -125,6 +125,16 @@ in {
   ];
   boot.kernel.sysctl."net.ipv4.ping_group_range" = "0 2147483647";
 
+  # Both virtio disks are sparse raw files on black with discard=unmap. ext4 is
+  # mounted without `discard`, so freed blocks never reach the host until fstrim
+  # runs: on 2026-10-01 the guest used 508 GiB of /srv/agents-state while the
+  # host image had grown to 735 GiB, black's btrfs hit 100 % and qemu paused the
+  # VM (io-error). A daily trim keeps the images close to real usage.
+  services.fstrim = {
+    enable = true;
+    interval = "daily";
+  };
+
   networking = {
     hostName = "atlas";
     useDHCP = lib.mkDefault true;
