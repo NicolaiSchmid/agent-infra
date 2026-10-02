@@ -47,7 +47,7 @@ await tools.executor.mcp.addServer({ transport: "remote", name: "...", endpoint:
 
 Connections are per June user and are managed in June (Settings → Integrations)
 or by the connect link
-`https://www.dearjune.ai/api/integrations/oauth/start?integration=<slug>&redirectTo=/settings/integrations`
+`https://www.dearjune.ai/api/integrations/oauth/start?integration=<slug>&redirectTo=/dashboard/integrations`
 that `execute` returns when a call hits a missing or expired connection. There
 are no approvals on this surface; calls run as the signed-in user.
 
