@@ -137,6 +137,12 @@ in {
     enable = true;
     interval = "*:0/15";
   };
+  # Upstream fstrim.timer ships AccuracySec=1h and RandomizedDelaySec=100min,
+  # which would turn the 15-minute schedule into roughly hourly at best.
+  systemd.timers.fstrim.timerConfig = {
+    AccuracySec = "1min";
+    RandomizedDelaySec = "0";
+  };
 
   networking = {
     hostName = "atlas";
