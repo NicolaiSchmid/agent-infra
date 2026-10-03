@@ -10,7 +10,17 @@
   stateDir = "${homeDir}/.local/share/t3code";
   appDir = "${stateDir}/app";
   workspace = "${homeDir}/workspace";
-  manifest = "${inputs.dotfiles-src}/darwin/agents/t3code-app";
+  # Forge runs the T3 server on the nightly channel (atlas stays on the stable
+  # pin in dotfiles-src). Bump with `bun install` in ./t3code-app after editing
+  # package.json, then verify `bun install --frozen-lockfile`.
+  manifest = ./t3code-app;
+  # Agent CLIs that T3 Code shells out to. Same pins as the MacBook, from
+  # dotfiles-nix, so forge, the Mac and atlas move together.
+  aiApps = import "${inputs.dotfiles-src}/darwin/packages/ai-apps.nix" {inherit pkgs;};
+  agentClis = [
+    aiApps.claude-code
+    aiApps.codex
+  ];
   cliTools = with pkgs; [
     bat
     bun
@@ -104,6 +114,7 @@ in {
 
   environment.systemPackages =
     cliTools
+    ++ agentClis
     ++ (with pkgs; [
       lima
       qemu
@@ -138,7 +149,8 @@ in {
             pkgs.gh
             pkgs.coreutils
           ]
-          ++ cliTools);
+          ++ cliTools
+          ++ agentClis);
       };
       KeepAlive = true;
       RunAtLoad = true;

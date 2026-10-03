@@ -34,6 +34,21 @@ T3 Code is available inside the Tailnet at:
 https://forge.takaya-buri.ts.net/
 ```
 
+Forge runs the T3 server from the nightly channel, pinned in
+`hosts/forge/t3code-app/` (atlas stays on the stable pin in dotfiles-nix). To
+bump it, set the version from `npm view t3 dist-tags` in `package.json`, run
+`bun install` in that directory, check `bun install --frozen-lockfile`, then
+switch and restart the daemon:
+
+```bash
+sudo launchctl kickstart -k system/org.nixos.t3code
+```
+
+Claude Code and Codex come from the same dotfiles-nix pins as the MacBook and
+are on the daemon's PATH. Their logins live in the `nschmid10049` home and are
+not managed here; after a fresh install run `claude` (then `/login`) and
+`codex login` once as that user.
+
 The Tailscale standalone app owns the persistent Serve configuration. If it is
 ever reset, restore it from the logged-in macOS account:
 
