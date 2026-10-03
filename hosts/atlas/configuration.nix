@@ -130,9 +130,12 @@ in {
   # runs: on 2026-10-01 the guest used 508 GiB of /srv/agents-state while the
   # host image had grown to 735 GiB, black's btrfs hit 100 % and qemu paused the
   # VM (io-error). A daily trim keeps the images close to real usage.
+  # Every 15 min: between trims the image grows by every block the guest
+  # allocates in a previously punched hole (~100 GB/h under agent load on
+  # 2026-10-03), so the trim period bounds how much host headroom is needed.
   services.fstrim = {
     enable = true;
-    interval = "daily";
+    interval = "*:0/15";
   };
 
   networking = {
