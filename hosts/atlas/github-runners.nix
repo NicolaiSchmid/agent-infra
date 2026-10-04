@@ -101,9 +101,11 @@
       # above that and MemoryHigh throttles first.
       MemoryHigh = "8G";
       MemoryMax = "11G";
-      # Atlas is CPU-bound (load above its 12 vCPUs) mostly from the agents in
-      # t3code; CI should yield to them under contention (default weight 100).
-      CPUWeight = 50;
+      # Atlas is CPU- and I/O-bound (load above its 12 vCPUs) mostly from the
+      # agents in t3code; CI yields to them under contention. t3code runs at
+      # weight 1000 (priorities.nix), the default is 100.
+      CPUWeight = 20;
+      IOWeight = 20;
       # The module sets Restart=no (it relies on RestartForceExitStatus=2); we
       # want a crashed listener back without manual intervention.
       Restart = lib.mkForce "on-failure";
