@@ -21,6 +21,8 @@ in {
     ./tailscale.nix
     ./forge-runner-watchdog.nix
     ./github-runners.nix
+    ./priorities.nix
+    ./build-sweep.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
