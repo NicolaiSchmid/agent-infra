@@ -11,6 +11,7 @@ variable pointed at the best available tier.
 ```text
 atlas-linux-june        atlas-linux-fifthset    atlas-linux-mietprofi
 atlas-linux-mosaic      atlas-linux-steno       atlas-linux-nicolaischmid-de
+atlas-linux-ilovegrain
 plus one -2 sibling of each (atlas-linux-june-2, ...)
 labels: self-hosted, Linux, X64, atlas
 ```

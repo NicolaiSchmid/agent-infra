@@ -11,13 +11,15 @@ repos=(
   NicolaiSchmid/mosaic
   NicolaiSchmid/nicolaischmid.de
   NicolaiSchmid/steno
+  NicolaiSchmid/ilovegrain
 )
 
 # Repositories whose Linux jobs run the same on x86_64 and arm64: when both
 # atlas and the Forge VM are online they get the arch-neutral label set, so
 # GitHub hands each job to whichever runner is idle and the Forge VM absorbs
-# overflow instead of sitting idle. june and fifthset stay x86_64-only: their
-# expo exports run hermesc, which is x86_64-only and emulated on arm64.
+# overflow instead of sitting idle. june, fifthset and ilovegrain stay
+# x86_64-only: their expo exports run hermesc, which is x86_64-only and
+# emulated on arm64 (ilovegrain also builds Android with Gradle).
 arch_neutral=(
   NicolaiSchmid/mietprofi
   NicolaiSchmid/mosaic
