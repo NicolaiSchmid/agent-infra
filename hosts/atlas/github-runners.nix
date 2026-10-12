@@ -28,6 +28,7 @@
     mosaic = "mosaic";
     steno = "steno";
     nicolaischmid-de = "nicolaischmid.de";
+    ilovegrain = "ilovegrain";
   };
   # Runners per repository. The first keeps the bare attribute name (and its
   # registration, user and directories); additional ones get a -N suffix.
