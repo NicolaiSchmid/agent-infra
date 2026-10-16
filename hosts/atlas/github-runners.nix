@@ -29,6 +29,7 @@
     steno = "steno";
     nicolaischmid-de = "nicolaischmid.de";
     ilovegrain = "ilovegrain";
+    zero-mobile = "zero-mobile";
   };
   # Runners per repository. The first keeps the bare attribute name (and its
   # registration, user and directories); additional ones get a -N suffix.
