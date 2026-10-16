@@ -95,6 +95,7 @@ forge-macos-steno-2
 forge-macos-steno-3
 forge-macos-steno-4
 forge-macos-ilovegrain forge-linux-ilovegrain
+forge-macos-zero-mobile
 ```
 
 steno has four macOS runners because its Swift CI runs two macOS jobs per
@@ -106,7 +107,8 @@ _diag --exclude '.runner' --exclude '.runner_migrated' --exclude '.credentials*'
 the Linux runners), registered under the `-N` name with the same labels. A
 copied `.runner_migrated` makes `config.sh` refuse with "already configured";
 a new repository's runner is copied the same way (forge-*-ilovegrain were,
-2026-10-12). Every macOS runner runs as `nschmid10049`; steno's workflow keeps
+2026-10-12; forge-macos-zero-mobile, 2026-10-16, has no Linux sibling
+because its Linux jobs run on atlas only). Every macOS runner runs as `nschmid10049`; steno's workflow keeps
 build products per runner under `~/Library/Caches/steno-ci/<runner name>/`.
 Memory allows more: with two xcodebuilds running, the runner processes and
 builds use about 1.3 GiB and swap stays empty. The host has 10 cores, so more
