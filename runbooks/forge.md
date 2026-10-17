@@ -44,6 +44,14 @@ switch and restart the daemon:
 sudo launchctl kickstart -k system/org.nixos.t3code
 ```
 
+Since the 0.1.1 nightlies the `t3` npm package is only a launcher with no
+dependencies. On first start of a new version it downloads that version's
+`darwin-arm64` executable from the GitHub release into
+`~/.local/share/t3code/runtime/versions/<version>`, checks it against the
+release's `SHA256SUMS`, and runs it. So the first start after a bump needs
+network access and takes longer. Old version folders are left there; delete
+them by hand.
+
 Claude Code and Codex come from the same dotfiles-nix pins as the MacBook and
 are on the daemon's PATH. Their logins live in the `nschmid10049` home and are
 not managed here; after a fresh install run `claude` (then `/login`) and
