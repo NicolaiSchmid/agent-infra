@@ -24,12 +24,30 @@
       for q in /sys/block/vd[a-z]/queue/scheduler; do echo ${name} >"$q"; done
     '';
 in {
+  # Batch work: atlas-ci.slice (github-runners.nix) and, with docker.nix,
+  # atlas-containers.slice. One ceiling for both keeps ~22G for t3code, its
+  # agents and the system. MemorySwapMax because zram's compressed pages are
+  # not charged to the cgroup, so unlimited swap would let a capped slice
+  # spill into host RAM anyway.
+  systemd.slices.atlas = {
+    description = "CI runners and Docker containers";
+    sliceConfig = {
+      CPUWeight = 20;
+      IOWeight = 20;
+      MemoryHigh = "24G";
+      MemoryMax = "28G";
+      MemorySwapMax = "4G";
+    };
+  };
+
   # Loaded before any service starts, so systemd can set io.bfq.weight on
   # their cgroups. Writing "bfq" to a scheduler file would also autoload it.
   boot.kernelModules = ["bfq"];
 
-  # Default weight is 100. The CI runners' slice gets 20 (github-runners.nix).
-  # systemd maps IOWeight onto BFQ's 1-1000 range: 1000 becomes an
+  # Weights only compete between siblings (runbooks/atlas-build-sweep.md has
+  # the full table). Default is 100. Inside system.slice the units below get
+  # 1000. Next to system.slice, atlas.slice (CI runners and Docker containers)
+  # gets 20. systemd maps IOWeight onto BFQ's 1-1000 range: 1000 becomes an
   # io.bfq.weight of 181, 20 stays 20.
   # t3code's cgroup also holds every agent session it spawns, so this favours
   # the agents together with the server, over CI and background jobs.

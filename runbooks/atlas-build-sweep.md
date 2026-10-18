@@ -5,9 +5,21 @@ Two things keep atlas usable while agents and CI build on it
 
 - **BFQ and weights.** `atlas-io-scheduler.service` puts `vda` and `vdb` on
   the BFQ scheduler; without it `IOWeight` and `IOSchedulingClass` do
-  nothing. t3code, Hermes, nginx, sshd and Tailscale run at
-  `CPUWeight`/`IOWeight` 1000 (`io.bfq.weight` 181), the CI runners at 20,
-  the sweep at 10 and idle class, everything else at the default 100.
+  nothing. Weights only compete between siblings in the cgroup tree:
+
+  | Level | Unit | CPU/IO weight | Memory |
+  |---|---|---|---|
+  | top | `system.slice`, `user.slice` | 100 | |
+  | top | `atlas.slice` (CI and containers) | 20 | high 24G, max 28G, swap 4G |
+  | in `atlas.slice` | `atlas-ci.slice` (all runners) | 100 | high 18G, max 22G; 8G/11G per runner |
+  | in `atlas.slice` | `atlas-containers.slice` (docker.nix) | 100 | high 12G, max 16G |
+  | in `system.slice` | t3code, hermes, nginx, sshd, tailscaled(-t3code), tailscale-t3code-serve | 1000 (`io.bfq.weight` 181) | |
+  | in `system.slice` | `system-hermes.slice` (the Hermes container, docker.nix) | 1000 | |
+  | in `system.slice` | `atlas-build-sweep` | 10, idle I/O class | |
+  | in `system.slice` | everything else | 100 | |
+
+  Under contention CI and test containers together get about a sixth of
+  CPU and I/O against `system.slice`.
 - **Build sweep.** `atlas-build-sweep.timer` runs hourly at :25. It removes
   build output (node_modules, dist, build, out, .next, cargo target, ...)
   from worktrees whose threads are all settled, archived or deleted, and
@@ -22,6 +34,7 @@ Two things keep atlas usable while agents and CI build on it
 cat /sys/block/vd*/queue/scheduler                    # [bfq] on both
 cat /sys/fs/cgroup/system.slice/t3code.service/io.bfq.weight   # default 181
 cat /proc/pressure/io
+systemd-cgls -u atlas.slice --no-pager | head      # runners appear after their restart
 systemctl list-timers atlas-build-sweep.timer
 journalctl -u atlas-build-sweep -n 50                 # "remove <path>" per directory, free space before/after
 ```

@@ -2,7 +2,9 @@
 # 2026-10-17 they pulled ~15 GB of images and left ~80 anonymous volumes
 # within an hour. Removes only
 # - anonymous volumes no container (running or stopped) uses,
-# - images no container uses, created more than 24h ago,
+# - images no container uses that were pulled or built here more than 24h
+#   ago (with the containerd image store, `until` is the local record's
+#   date, not the image's build date),
 # - build cache unused for 24h.
 # Named volumes are never touched, nor are stopped containers or anything
 # they reference. NixOS's virtualisation.docker.autoPrune runs
@@ -18,7 +20,9 @@
     runtimeInputs = [docker pkgs.systemd];
     text = ''
       # hermes runs with --rm: while it is down its image counts as unused,
-      # and rebuilding it takes long. Skip the image prune then.
+      # and rebuilding it takes long. Skip the image prune then. Its base
+      # images and build cache do go, so the next hermes restart rebuilds
+      # from scratch.
       docker volume prune --force
       if systemctl is-active --quiet hermes; then
         docker image prune --all --force --filter until=24h
