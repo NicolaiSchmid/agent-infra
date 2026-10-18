@@ -28,7 +28,7 @@ in {
   # their cgroups. Writing "bfq" to a scheduler file would also autoload it.
   boot.kernelModules = ["bfq"];
 
-  # Default weight is 100. The CI runners get 20 (github-runners.nix).
+  # Default weight is 100. The CI runners' slice gets 20 (github-runners.nix).
   # systemd maps IOWeight onto BFQ's 1-1000 range: 1000 becomes an
   # io.bfq.weight of 181, 20 stays 20.
   # t3code's cgroup also holds every agent session it spawns, so this favours

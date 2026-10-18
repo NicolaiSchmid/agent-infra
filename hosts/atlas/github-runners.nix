@@ -37,7 +37,11 @@
   runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
     lib.genList (i:
       lib.nameValuePair
-      (if i == 0 then name else "${name}-${toString (i + 1)}")
+      (
+        if i == 0
+        then name
+        else "${name}-${toString (i + 1)}"
+      )
       repo)
     runnersPerRepo)
   repos));
@@ -103,11 +107,8 @@
       # above that and MemoryHigh throttles first.
       MemoryHigh = "8G";
       MemoryMax = "11G";
-      # Atlas is CPU- and I/O-bound (load above its 12 vCPUs) mostly from the
-      # agents in t3code; CI yields to them under contention. t3code runs at
-      # weight 1000 (priorities.nix), the default is 100.
-      CPUWeight = 20;
-      IOWeight = 20;
+      # All runners share atlas-ci.slice (below) for memory, CPU and I/O.
+      Slice = "atlas-ci.slice";
       # The module sets Restart=no (it relies on RestartForceExitStatus=2); we
       # want a crashed listener back without manual intervention.
       Restart = lib.mkForce "on-failure";
@@ -128,6 +129,25 @@ in {
       restartIfChanged = false;
     })
   runners;
+
+  # 16 runners at up to 11G each could take far more than atlas's 50G. On
+  # 2026-10-18 four busy runners held ~19G when the kernel ran out of memory
+  # and killed into t3code. The slice caps CI as a whole: under pressure the
+  # runners are throttled and, past MemoryMax, OOM-killed among themselves.
+  # A running runner moves into the slice only when it is restarted.
+  systemd.slices.atlas-ci = {
+    description = "GitHub Actions runners";
+    sliceConfig = {
+      MemoryHigh = "18G";
+      MemoryMax = "22G";
+      # Atlas is CPU- and I/O-bound (load above its 12 vCPUs) mostly from the
+      # agents in t3code; CI yields to them under contention. The slice sits
+      # next to system.slice (default weight 100), where t3code runs at 1000
+      # (priorities.nix).
+      CPUWeight = 20;
+      IOWeight = 20;
+    };
+  };
 
   users.groups.${group} = {};
   users.users = lib.mapAttrs' (name: _:
