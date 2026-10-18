@@ -42,10 +42,14 @@ What stops:
 Steps, as root on atlas (`sudo -i`):
 
 ```bash
-# 0. Prune first so less is copied (needs atlas-docker-prune deployed), and
-#    look at what runs and what will be copied.
-systemctl start atlas-docker-prune
-docker ps                                   # expect hermes only
+# 0. Look at what runs, and drop unused anonymous volumes so less is copied.
+#    Keep images and build cache: Hermes's base images and build cache make
+#    the hermes-image rebuild in step 4 take seconds instead of minutes.
+docker ps --format '{{.Names}}\t{{.Status}}'   # expect hermes only; any other
+                                                # container is an agent's test
+                                                # stack: wait for it to finish
+pgrep -af 'docker(-compose)? (compose )?(run|up|build|start|exec)' | grep -v 'name hermes'
+docker volume prune --force
 du -sh /var/lib/docker; docker system df
 df -h / /srv/agents-state
 
