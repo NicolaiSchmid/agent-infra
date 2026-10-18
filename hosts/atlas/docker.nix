@@ -9,21 +9,32 @@
 #
 # Containers run in atlas-containers.slice instead of system.slice. When atlas
 # ran out of memory on 2026-10-18, a test stack's mongod held 10.5G with no
-# limit; now test stacks are throttled and OOM-killed among themselves. Hermes
-# keeps running in system.slice (configuration.nix).
+# limit; now test stacks are throttled and OOM-killed among themselves. The
+# slice sits next to system.slice, so it also gets the CI weight of 20 there.
+# Hermes runs in system-hermes.slice inside system.slice instead, where its
+# weight of 1000 applies to the gateway itself rather than only to the
+# `docker run` client in hermes.service.
 {
   virtualisation.docker.daemon.settings = {
     data-root = "/srv/agents-state/docker";
     cgroup-parent = "atlas-containers.slice";
   };
 
-  systemd.tmpfiles.rules = ["d /srv/agents-state/docker 0710 root root -"];
-
   systemd.slices.atlas-containers = {
     description = "Docker containers (agents' test stacks, sandboxes)";
     sliceConfig = {
       MemoryHigh = "12G";
       MemoryMax = "16G";
+      CPUWeight = 20;
+      IOWeight = 20;
+    };
+  };
+
+  systemd.slices.system-hermes = {
+    description = "Hermes gateway container";
+    sliceConfig = {
+      CPUWeight = 1000;
+      IOWeight = 1000;
     };
   };
 }

@@ -7,7 +7,7 @@ managed containerd keeps its snapshots under the data root, so images,
 containers, volumes and build cache all move together.
 
 Containers run in `atlas-containers.slice` (MemoryHigh 12G, MemoryMax 16G);
-Hermes runs in `system.slice` via `--cgroup-parent`. `atlas-docker-prune.timer`
+Hermes runs in `system-hermes.slice` (weight 1000) via `--cgroup-parent`. `atlas-docker-prune.timer`
 cleans unused anonymous volumes, old unused images and build cache daily
 (`hosts/atlas/docker-prune.nix`).
 
