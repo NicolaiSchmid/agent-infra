@@ -104,7 +104,16 @@ forge-macos-steno-3
 forge-macos-steno-4
 forge-macos-ilovegrain forge-linux-ilovegrain
 forge-macos-zero-mobile
+forge-macos-passwords-ios
 ```
+
+`forge-macos-wasc-io` is an organization runner (Default group), so every private
+wasc-io repository can use it; public repositories cannot. `forge-macos-passwords-ios`
+(`~/actions-runner-macos-passwords-ios`, 2026-10-18) is a second, repository-level runner
+for `wasc-io/passwords-ios`, so its iOS builds and the passwords-clients desktop build do not
+wait for each other (organization registration tokens need `admin:org`). Both keep their
+build state in `~/Library/Caches/wasc-passwords-ci/<runner name>/`, and their workflows pick
+Xcode with `DEVELOPER_DIR`, never `xcode-select`.
 
 steno has four macOS runners because its Swift CI runs two macOS jobs per
 push and its agents open many pull requests at once; on 2026-09-28 ten runs
