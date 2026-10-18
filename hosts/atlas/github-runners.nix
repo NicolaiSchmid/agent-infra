@@ -37,11 +37,7 @@
   runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
     lib.genList (i:
       lib.nameValuePair
-      (
-        if i == 0
-        then name
-        else "${name}-${toString (i + 1)}"
-      )
+      (if i == 0 then name else "${name}-${toString (i + 1)}")
       repo)
     runnersPerRepo)
   repos));
@@ -122,8 +118,8 @@ in {
   # files are loaded but the running listeners are left alone. Runners are
   # rarely idle at the same time, so apply a change to an already-running unit
   # with `systemctl restart github-runner-<name>` once that runner is not busy
-  # (see runbooks/atlas-runners.md). Cgroup limits (CPUWeight, Memory*) are
-  # applied to running units by the daemon reload anyway.
+  # (see runbooks/atlas-runners.md). Per-unit Memory* limits reach running
+  # units through the daemon reload; the move into atlas-ci.slice does not.
   systemd.services = lib.mapAttrs' (name: _:
     lib.nameValuePair "github-runner-${name}" {
       restartIfChanged = false;

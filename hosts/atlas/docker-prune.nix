@@ -38,9 +38,9 @@ in {
     requisite = ["docker.service"];
     serviceConfig = {
       Type = "oneshot";
+      # dockerd does the deleting, in docker.service's cgroup; Nice or an I/O
+      # class here would only apply to the CLI.
       ExecStart = "${prune}/bin/atlas-docker-prune";
-      Nice = 19;
-      IOSchedulingClass = "idle";
     };
   };
 
