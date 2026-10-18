@@ -103,9 +103,8 @@
       # above that and MemoryHigh throttles first.
       MemoryHigh = "8G";
       MemoryMax = "11G";
-      # Atlas is CPU-bound (load above its 12 vCPUs) mostly from the agents in
-      # t3code; CI should yield to them under contention (default weight 100).
-      CPUWeight = 50;
+      # All runners share atlas-ci.slice (below).
+      Slice = "atlas-ci.slice";
       # The module sets Restart=no (it relies on RestartForceExitStatus=2); we
       # want a crashed listener back without manual intervention.
       Restart = lib.mkForce "on-failure";
@@ -119,13 +118,28 @@ in {
   # files are loaded but the running listeners are left alone. Runners are
   # rarely idle at the same time, so apply a change to an already-running unit
   # with `systemctl restart github-runner-<name>` once that runner is not busy
-  # (see runbooks/atlas-runners.md). Cgroup limits (CPUWeight, Memory*) are
-  # applied to running units by the daemon reload anyway.
+  # (see runbooks/atlas-runners.md). Per-unit Memory* limits reach running
+  # units through the daemon reload; the move into atlas-ci.slice does not.
   systemd.services = lib.mapAttrs' (name: _:
     lib.nameValuePair "github-runner-${name}" {
       restartIfChanged = false;
     })
   runners;
+
+  # 16 runners at up to 11G each could take far more than atlas's 50G. On
+  # 2026-10-18 four busy runners held ~19G when the kernel ran out of memory
+  # and killed into t3code. The slice caps CI as a whole: under pressure the
+  # runners are throttled and, past MemoryMax, OOM-killed among themselves.
+  # It nests in atlas.slice (the dash means nesting), which carries the CPU/IO
+  # weight and the overall cap for CI and containers (priorities.nix).
+  # A running runner moves into the slice only when it is restarted.
+  systemd.slices.atlas-ci = {
+    description = "GitHub Actions runners";
+    sliceConfig = {
+      MemoryHigh = "18G";
+      MemoryMax = "22G";
+    };
+  };
 
   users.groups.${group} = {};
   users.users = lib.mapAttrs' (name: _:

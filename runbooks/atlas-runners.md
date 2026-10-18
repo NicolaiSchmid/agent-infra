@@ -23,11 +23,14 @@ waited 6 to 10 minutes and mosaic's 13 to 51 minutes behind a single 13-minute
 for more; every runner idles at about 100 MiB.
 
 Atlas is CPU-bound (load 17 on 12 vCPUs, mostly the agents in t3code plus one
-CI job), so runner units carry `CPUWeight=50`: under contention CI gets half
-the share of a default unit and the agents stay responsive. Memory limits are
-`MemoryHigh=8G` / `MemoryMax=11G` per runner; the largest job seen (mosaic
-`quality`) peaks near 10 GiB, so it still fits while a second job runs beside
-it.
+CI job), so all runners share `atlas-ci.slice` inside `atlas.slice`, which
+gets CPU/IO weight 20 next to `system.slice` (100, t3code at 1000 inside it)
+and a memory ceiling shared with Docker containers. Memory limits are
+`MemoryHigh=8G` / `MemoryMax=11G` per runner and 18G / 22G for all runners
+together; the largest job seen (mosaic `quality`) peaks near 10 GiB, so it
+still fits while a second job runs beside it. Weights and limits for the
+whole host: `runbooks/atlas-build-sweep.md`. A runner joins the slice when it
+is restarted; check with `systemd-cgls -u atlas-ci.slice`.
 
 ## Isolation
 
@@ -37,8 +40,8 @@ group `github-runners`) inside the module's systemd sandbox
 (`ProtectSystem=strict`, `PrivateUsers`, `ProtectHome`, `NoNewPrivileges`, syscall
 filter). A job can write only its work dir and tool cache under
 `/srv/agents-state/github-runners/<repo>/` and cannot read t3code, Hermes or
-the agents' credentials in `/srv/agents-state/nicolai`. `MemoryMax=11G` and
-`CPUWeight=50` per runner keep a runaway job from starving t3code and Hermes. The repositories
+the agents' credentials in `/srv/agents-state/nicolai`. `MemoryMax=11G` per
+runner and `atlas-ci.slice` keep a runaway job from starving t3code and Hermes. The repositories
 are private and only Nicolai's code runs here; this is protection against
 mistakes, not against a hostile pull request. Jobs that need Docker stay on the
 Forge VM (`forge-linux-*` runners, label `docker`).

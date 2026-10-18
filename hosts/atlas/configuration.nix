@@ -21,6 +21,9 @@ in {
     ./tailscale.nix
     ./forge-runner-watchdog.nix
     ./github-runners.nix
+    ./priorities.nix
+    ./build-sweep.nix
+    ./docker-prune.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
@@ -254,6 +257,11 @@ in {
     # must never bounce it. Unit changes are picked up by a manual
     # `systemctl restart t3code` in a planned window.
     restartIfChanged = false;
+    # The cgroup also holds every agent session. On 2026-10-18 the kernel
+    # OOM-killed one agent's python3 and the default OOMPolicy=stop then
+    # stopped the whole server (its 5th restart). Let the server outlive its
+    # children; the kernel still kills whichever process it picked.
+    serviceConfig.OOMPolicy = "continue";
   };
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
