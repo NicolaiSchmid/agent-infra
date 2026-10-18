@@ -30,8 +30,9 @@ git_() { git -c safe.directory='*' "$@"; }
 threads() { sqlite3 -readonly "$THREADS_DB" "$1"; }
 
 # Paths in use, one per line: every process cwd and every CARGO_TARGET_DIR
-# (relative ones resolved against that process's cwd). Re-read before each
-# worktree is pruned, because removing node_modules can take minutes.
+# (normalised; relative ones resolved against that process's cwd). Re-read
+# before each worktree is pruned, because removing node_modules can take
+# minutes.
 busy_paths=
 scan_busy() {
   local f pid dir
@@ -42,8 +43,8 @@ scan_busy() {
       pid=${pid%/environ}
       dir=$(tr '\0' '\n' <"$f" 2>/dev/null | sed -n 's/^CARGO_TARGET_DIR=//p' | head -1) || continue
       case $dir in
-      /*) echo "$dir" ;;
-      ?*) echo "$(readlink "/proc/$pid/cwd" 2>/dev/null)/$dir" ;;
+      /*) realpath -m -- "$dir" ;;
+      ?*) realpath -m -- "$(readlink "/proc/$pid/cwd" 2>/dev/null)/$dir" ;;
       esac
     done
   } | sort -u)$'\n'
