@@ -2,7 +2,7 @@
 {pkgs, ...}: let
   sweep = pkgs.writeShellApplication {
     name = "atlas-build-sweep";
-    runtimeInputs = with pkgs; [coreutils findutils gnugrep gnused sqlite];
+    runtimeInputs = with pkgs; [coreutils findutils git gnugrep sqlite];
     text = builtins.readFile ./build-sweep.sh;
   };
 in {
@@ -26,7 +26,6 @@ in {
     timerConfig = {
       OnCalendar = "*:25";
       AccuracySec = "1min";
-      Unit = "atlas-build-sweep.service";
     };
   };
 }
