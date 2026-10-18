@@ -66,9 +66,12 @@ recent() { written "$1" -mmin "-$QUIET_MIN"; }
 
 # $1 is build output: inside a git work tree, git tracks nothing in it and
 # ignores it (or cargo marked it); outside git, only cargo output counts.
-# A worktree whose gitdir is gone counts as outside git.
+# A worktree whose gitdir is gone counts as outside git. *-target only means
+# a cargo target dir when cargo marked it (deepsec keeps scan data under such
+# names).
 deletable() {
   local parent=${1%/*} name=${1##*/}
+  case $name in *-target) [ -e "$1/CACHEDIR.TAG" ] || return 1 ;; esac
   if git_ -C "$parent" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     [ -z "$(git_ -C "$parent" ls-files -- "$name" 2>/dev/null | head -1)" ] || return 1
     [ -e "$1/CACHEDIR.TAG" ] || git_ -C "$parent" check-ignore -q -- "$name"
