@@ -22,6 +22,7 @@ in {
     ./forge-runner-watchdog.nix
     ./github-runners.nix
     ./priorities.nix
+    ./agentchecks.nix
     ./build-sweep.nix
     ./docker-prune.nix
     "${agentModules}/tailscale-uis.nix"

@@ -1,8 +1,8 @@
 # Atlas Linux runners
 
 Persistent x86_64 GitHub Actions runners for Nicolai's repositories run on
-`atlas` as NixOS `services.github-runners` units, two per repository
-(`hosts/atlas/github-runners.nix`, `runnersPerRepo`). They are the primary
+`atlas` as NixOS `services.github-runners` units, two per repository and
+three for mosaic (`hosts/atlas/github-runners.nix`, `runnersPerRepo`). They are the primary
 Linux runners; the Forge arm64 VM is the fallback (and, for arch-neutral
 repositories, the overflow), GitHub-hosted runners the last resort. The
 `forge-runner-watchdog` timer on atlas keeps each repository's `LINUX_RUNS_ON`
@@ -12,7 +12,7 @@ variable pointed at the best available tier.
 atlas-linux-june        atlas-linux-fifthset    atlas-linux-mietprofi
 atlas-linux-mosaic      atlas-linux-steno       atlas-linux-nicolaischmid-de
 atlas-linux-ilovegrain  atlas-linux-zero-mobile
-plus one -2 sibling of each (atlas-linux-june-2, ...)
+plus one -2 sibling of each (atlas-linux-june-2, ...) and atlas-linux-mosaic-3
 labels: self-hosted, Linux, X64, atlas
 ```
 
@@ -20,7 +20,12 @@ Two per repository because one was a queue: mietprofi's sub-minute gate jobs
 waited 6 to 10 minutes and mosaic's 13 to 51 minutes behind a single 13-minute
 `quality` job (2026-09-28). The second runner is a full sibling (own user
 `ghr-<repo>-2`, own directories under `<repo>-2/`). Raise `runnersPerRepo`
-for more; every runner idles at about 100 MiB.
+for more; every runner idles at about 100 MiB. mosaic got a third on
+2026-10-21, when ~10 agent lanes queued ~35 runs and one PR waited 4.5 h for
+`quality`. Forge does not help there: its VM serialises every `quality` and
+`tier1` job behind one heavy-job lock (`runbooks/forge.md`), so a
+`forge-linux-mosaic-2` would only wait on it. More runners do not raise CI's
+memory: `atlas-ci.slice` caps them together.
 
 Atlas is CPU-bound (load 17 on 12 vCPUs, mostly the agents in t3code plus one
 CI job), so all runners share `atlas-ci.slice` inside `atlas.slice`, which
@@ -38,7 +43,9 @@ Docker is not an isolation boundary, so the runners get none: no Docker socket,
 no docker group. Each runner is its own static system user (`ghr-<repo>`,
 group `github-runners`) inside the module's systemd sandbox
 (`ProtectSystem=strict`, `PrivateUsers`, `ProtectHome`, `NoNewPrivileges`, syscall
-filter). A job can write only its work dir and tool cache under
+filter; `capset` is allowed again because Playwright's Chromium calls it and
+the module's filter killed it with SIGSYS, "Target crashed" in mosaic's
+`tier1`). A job can write only its work dir and tool cache under
 `/srv/agents-state/github-runners/<repo>/` and cannot read t3code, Hermes or
 the agents' credentials in `/srv/agents-state/nicolai`. `MemoryMax=11G` per
 runner and `atlas-ci.slice` keep a runaway job from starving t3code and Hermes. The repositories
