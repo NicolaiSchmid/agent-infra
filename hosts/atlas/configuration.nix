@@ -23,6 +23,7 @@ in {
     ./github-runners.nix
     ./priorities.nix
     ./build-sweep.nix
+    ./agent-checks.nix
     ./docker-prune.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
@@ -128,24 +129,12 @@ in {
   ];
   boot.kernel.sysctl."net.ipv4.ping_group_range" = "0 2147483647";
 
-  # Both virtio disks are sparse raw files on black with discard=unmap. ext4 is
-  # mounted without `discard`, so freed blocks never reach the host until fstrim
-  # runs: on 2026-10-01 the guest used 508 GiB of /srv/agents-state while the
-  # host image had grown to 735 GiB, black's btrfs hit 100 % and qemu paused the
-  # VM (io-error). A daily trim keeps the images close to real usage.
-  # Every 15 min: between trims the image grows by every block the guest
-  # allocates in a previously punched hole (~100 GB/h under agent load on
-  # 2026-10-03), so the trim period bounds how much host headroom is needed.
-  services.fstrim = {
-    enable = true;
-    interval = "*:0/15";
-  };
-  # Upstream fstrim.timer ships AccuracySec=1h and RandomizedDelaySec=100min,
-  # which would turn the 15-minute schedule into roughly hourly at best.
-  systemd.timers.fstrim.timerConfig = {
-    AccuracySec = "1min";
-    RandomizedDelaySec = "0";
-  };
+  # Both virtio disks are fully allocated nodatacow files on black with
+  # discard='ignore' (hosts/black/libvirt.nix), so trims never reach the host.
+  # Until 2026-10-25 they were sparse with discard=unmap and fstrim ran every
+  # 15 minutes; each trim punched holes into btrfs extents that btrfs could not
+  # free while any part stayed referenced, and black filled up anyway.
+  services.fstrim.enable = false;
 
   networking = {
     hostName = "atlas";

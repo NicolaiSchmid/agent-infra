@@ -2,7 +2,11 @@
   atlasMemoryMiB = 52 * 1024;
   atlasVCpus = 12;
   atlasRootSize = "120G";
-  atlasStateSize = "1000G";
+  # 750G, not 1000G: black has 953G of btrfs RAID1, and a guest disk larger
+  # than the host can hold meant black filled up first and the VM paused on an
+  # I/O error (2026-10-01..25). With both images fully allocated, a full disk
+  # shows up inside atlas as ENOSPC and the VM keeps running.
+  atlasStateSize = "750G";
   imageDir = "/var/lib/libvirt/images";
   atlasRoot = "${imageDir}/atlas-root.raw";
   atlasState = "${imageDir}/atlas-state.raw";
@@ -21,6 +25,10 @@
       </ip>
     </network>
   '';
+  # discard='ignore': the images are fully allocated nodatacow files. Passing
+  # guest trims through punched holes into btrfs extents, and btrfs only frees
+  # an extent once all of it is unreferenced, so partly trimmed extents stayed
+  # allocated: 931G on disk for 709G of data on 2026-10-25.
   atlasXml = pkgs.writeText "atlas.xml" ''
     <domain type='kvm'>
       <name>atlas</name>
@@ -39,12 +47,12 @@
       <devices>
         <emulator>/run/libvirt/nix-emulators/qemu-system-x86_64</emulator>
         <disk type='file' device='disk'>
-          <driver name='qemu' type='raw' cache='none' io='native' discard='unmap'/>
+          <driver name='qemu' type='raw' cache='none' io='native' discard='ignore'/>
           <source file='${atlasRoot}'/>
           <target dev='vda' bus='virtio'/>
         </disk>
         <disk type='file' device='disk'>
-          <driver name='qemu' type='raw' cache='none' io='native' discard='unmap'/>
+          <driver name='qemu' type='raw' cache='none' io='native' discard='ignore'/>
           <source file='${atlasState}'/>
           <target dev='vdb' bus='virtio'/>
         </disk>
@@ -108,8 +116,9 @@ in {
     script = ''
       set -euo pipefail
       install -d -m 0711 ${imageDir}
-      [ -e ${atlasRoot} ] || qemu-img create -f raw ${atlasRoot} ${atlasRootSize}
-      [ -e ${atlasState} ] || qemu-img create -f raw ${atlasState} ${atlasStateSize}
+      # Fully allocated (falloc), so the host never runs out of space under the VM.
+      [ -e ${atlasRoot} ] || qemu-img create -f raw -o preallocation=falloc ${atlasRoot} ${atlasRootSize}
+      [ -e ${atlasState} ] || qemu-img create -f raw -o preallocation=falloc ${atlasState} ${atlasStateSize}
       virsh net-info default >/dev/null 2>&1 || virsh net-define ${defaultNetworkXml}
       virsh net-start default >/dev/null 2>&1 || true
       virsh net-autostart default >/dev/null
