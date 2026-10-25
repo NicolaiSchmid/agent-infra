@@ -214,6 +214,18 @@ in {
   '';
   environment.sessionVariables.TMPDIR = "/srv/agents-state/tmp";
 
+  # vitest defaults to one worker per CPU minus one (11 on atlas), per run. On
+  # 2026-10-25 parallel agent lanes had 138 vitest workers queued behind the
+  # agent-checks cap (load 140). VITEST_MAX_WORKERS (vitest 4+) overrides even
+  # a repo's maxWorkers; the THREADS/FORKS pair covers the vitest 2/3 repos.
+  # Set in /etc/set-environment, which every agent shell sources per command,
+  # so it applies without restarting t3code. CI runners do not read it.
+  environment.variables = {
+    VITEST_MAX_WORKERS = "2";
+    VITEST_MAX_THREADS = "2";
+    VITEST_MAX_FORKS = "2";
+  };
+
   # Journal and core dumps share the root disk too; cap them. dhcpcd dumped core
   # 300+ times (2G) because it tried to manage Docker veth interfaces and
   # crashed in ipv6nd_expire when they vanished -- only enp1s0 needs DHCP.
@@ -241,7 +253,10 @@ in {
   systemd.services.t3code = {
     path = lib.mkBefore [ghPrShim];
     # Inherited by every claude/codex/opencode process t3code spawns.
-    environment.TMPDIR = "/srv/agents-state/tmp";
+    environment = {
+      TMPDIR = "/srv/agents-state/tmp";
+      inherit (config.environment.variables) VITEST_MAX_WORKERS VITEST_MAX_THREADS VITEST_MAX_FORKS;
+    };
     # Operational rule (README): t3code carries live agent work, so a rebuild
     # must never bounce it. Unit changes are picked up by a manual
     # `systemctl restart t3code` in a planned window.
