@@ -18,11 +18,14 @@ THREADS_DB=$AGENTS/t3code/userdata/statev2.sqlite
 STATE=${STATE_DIRECTORY:-/var/lib/atlas-build-sweep}
 SWEPT=$STATE/swept-worktrees.txt
 QUIET_MIN=120
+# node_modules and build output of t3code worktrees (step 1) stay until the
+# worktree's threads are idle and nothing in it was written for this many days.
+IDLE_DAYS=${IDLE_DAYS:-7}
 DRY_RUN=${DRY_RUN:-}
 # Whole worktrees (steps 3 and 4) go only after this many days without writes.
 # PURGE_DRY_RUN=1 logs those removals without making them (set by the unit until
 # the first logs were reviewed); DRY_RUN implies it.
-PURGE_DAYS=${PURGE_DAYS:-3}
+PURGE_DAYS=${PURGE_DAYS:-7}
 PURGE_DRY_RUN=${PURGE_DRY_RUN:-$DRY_RUN}
 rc=0
 
@@ -105,7 +108,7 @@ echo "sweep start, $(avail) free on $AGENTS${DRY_RUN:+ (dry run)}"
 
 # 1) Worktrees (and t3code scratch dirs) whose threads are all settled,
 #    archived or deleted, have no live run, and were not updated for
-#    $QUIET_MIN minutes: all build and install output. Several threads can
+#    $IDLE_DAYS days: all build and install output. Several threads can
 #    share a worktree, so one active thread keeps it. Worktrees swept before
 #    and unchanged since the last run started are skipped; the list is
 #    rebuilt every run, so removed worktrees drop out of it.
@@ -123,7 +126,7 @@ if [ "$fresh" = 1 ] && worktrees=$(threads "
     where status in ('queued', 'preparing', 'starting', 'running', 'waiting'))
   select wt from t where wt is not null group by wt
   having min(idle and thread_id not in live) = 1
-    and max(updated_at) < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-$QUIET_MIN minutes')"); then
+    and max(updated_at) < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-$IDLE_DAYS days')"); then
   stamp=$STATE/run-started
   [ -n "$DRY_RUN" ] || touch "$stamp"
   declare -A swept=()
@@ -137,7 +140,7 @@ if [ "$fresh" = 1 ] && worktrees=$(threads "
       continue
     fi
     scan_busy
-    if in_use "$wt" || recent "$wt"; then continue; fi
+    if in_use "$wt" || written "$wt" -mtime "-$IDLE_DAYS"; then continue; fi
     prune_builds "$wt" "${WEB[@]}" >&2
     echo "$wt"
   done <<<"$worktrees" | sort -u >"$STATE/swept.tmp"

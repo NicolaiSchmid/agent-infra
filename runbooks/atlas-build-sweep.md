@@ -25,8 +25,15 @@ Two things keep atlas usable while agents and CI build on it
   from worktrees whose threads are all settled, archived or deleted, and
   cargo target dirs from `workspace/`, the state tmp and `/tmp`. It only
   removes directories git ignores and tracks nothing in (outside git: cargo
-  output with `CACHEDIR.TAG`), and skips anything a process works in or
-  that was written in the last 120 minutes.
+  output with `CACHEDIR.TAG`), and skips anything a process works in. Worktree
+  build output goes only after 7 days without writes (`IDLE_DAYS`); cargo
+  output elsewhere after 120 minutes.
+- **Worktree purge** (same timer). Removes whole worktrees, t3code's and the
+  ones agents create in workspace clones, after 7 days without writes
+  (`PURGE_DAYS`) when they have no modified or untracked files and no commit
+  missing from every remote, and build output in workspace clones idle as
+  long. Logs `purge worktree <path>` only while the unit sets
+  `PURGE_DRY_RUN=1`.
 
 ## Check
 
