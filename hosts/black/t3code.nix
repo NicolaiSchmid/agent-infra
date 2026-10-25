@@ -19,7 +19,7 @@
 }: let
   keys = import ../../modules/keys.nix;
   image = "/var/lib/t3code-state.img";
-  imageSize = "8G";
+  imageSize = "5G";
   stateDir = "/var/lib/t3code";
   appDir = "${stateDir}/app";
   homeDir = "${stateDir}/home";
