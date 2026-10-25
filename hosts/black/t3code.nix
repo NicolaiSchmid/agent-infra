@@ -3,10 +3,8 @@
 # release as atlas, but sized to stay out of atlas's way: black has ~7G of RAM
 # left next to the 52G VM.
 #
-# State lives in a preallocated ext4 image instead of on black's btrfs root:
-# that root is what fills up during atlas incidents, and SQLite needs to keep
-# writing exactly then. The image is NOCOW + fallocated, so its blocks are
-# already allocated when btrfs runs out.
+# State sits on black's btrfs root under /var/lib/t3code. Since #28 the atlas
+# images are fully allocated, so the VM can no longer fill that root.
 #
 # Reachable at https://black.<tailnet> (Serve on black's own node, through
 # the same CORS shim as atlas) and via T3 Connect once linked (runbook).
@@ -18,8 +16,6 @@
   ...
 }: let
   keys = import ../../modules/keys.nix;
-  image = "/var/lib/t3code-state.img";
-  imageSize = "5G";
   stateDir = "/var/lib/t3code";
   appDir = "${stateDir}/app";
   homeDir = "${stateDir}/home";
@@ -79,44 +75,18 @@ in {
       defaultBranch = main
   '';
 
-  systemd.services.t3code-state = {
-    description = "T3 Code state image on black";
-    unitConfig.RequiresMountsFor = ["/var/lib"];
-    path = with pkgs; [
-      coreutils
-      e2fsprogs
-      util-linux
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    script = ''
-      set -euo pipefail
-      if [ ! -e ${image} ]; then
-        touch ${image}.new
-        chattr +C ${image}.new
-        fallocate -l ${imageSize} ${image}.new
-        mkfs.ext4 -q -L t3code-state ${image}.new
-        mv ${image}.new ${image}
-      fi
-      mkdir -p ${stateDir}
-      if ! mountpoint -q ${stateDir}; then
-        mount -o loop,noatime ${image} ${stateDir}
-      fi
-      install -d -o nicolai -g users -m 0755 ${stateDir}
-      install -d -o nicolai -g users -m 0700 ${homeDir}
-      install -d -o nicolai -g users -m 0755 ${appDir} ${workspace}
-      install -d -o nicolai -g users -m 1777 ${tmpDir}
-    '';
-  };
+  systemd.tmpfiles.rules = [
+    "d ${stateDir} 0755 nicolai users -"
+    "d ${homeDir} 0700 nicolai users -"
+    "d ${appDir} 0755 nicolai users -"
+    "d ${workspace} 0755 nicolai users -"
+    "d ${tmpDir} 1777 nicolai users 10d"
+  ];
 
   systemd.services.t3code = {
     description = "T3 Code server (black ops)";
     wantedBy = ["multi-user.target"];
-    requires = ["t3code-state.service"];
     after = [
-      "t3code-state.service"
       "network-online.target"
       "tailscaled.service"
     ];
