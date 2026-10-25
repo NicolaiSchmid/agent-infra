@@ -225,6 +225,11 @@ in {
     VITEST_MAX_THREADS = "2";
     VITEST_MAX_FORKS = "2";
   };
+  # Agents also start gate scripts as `systemd-run --user` units, which take
+  # their environment from the user manager, not from a shell.
+  systemd.user.extraConfig = ''
+    DefaultEnvironment=VITEST_MAX_WORKERS=2 VITEST_MAX_THREADS=2 VITEST_MAX_FORKS=2
+  '';
 
   # Journal and core dumps share the root disk too; cap them. dhcpcd dumped core
   # 300+ times (2G) because it tried to manage Docker veth interfaces and
