@@ -19,6 +19,11 @@ STATE=${STATE_DIRECTORY:-/var/lib/atlas-build-sweep}
 SWEPT=$STATE/swept-worktrees.txt
 QUIET_MIN=120
 DRY_RUN=${DRY_RUN:-}
+# Whole worktrees (steps 3 and 4) go only after this many days without writes.
+# PURGE_DRY_RUN=1 logs those removals without making them (set by the unit until
+# the first logs were reviewed); DRY_RUN implies it.
+PURGE_DAYS=${PURGE_DAYS:-3}
+PURGE_DRY_RUN=${PURGE_DRY_RUN:-$DRY_RUN}
 rc=0
 
 RUST=(-name target -o -name '*-target')
@@ -160,6 +165,68 @@ find "$WORKSPACE" "$AGENTS/tmp" /tmp -xdev \( -name .git -o -name node_modules -
   -o -type d \( "${RUST[@]}" \) -prune -print0 2>/dev/null |
   while IFS= read -r -d '' d; do
     in_use "${d%/*}" || in_use "$d" || recent "$d" || ! deletable "$d" || remove "$d"
+  done || true
+
+# A worktree may go when git has nothing that exists only here: no modified or
+# untracked files (ignored ones are build output) and no commit that no remote
+# branch contains. `git worktree remove` (without --force) refuses again on
+# modified or untracked files, ignored ones such as node_modules do not count.
+disposable() {
+  local wt=$1
+  git_ -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  [ "$(git_ -C "$wt" rev-parse --git-dir)" != "$(git_ -C "$wt" rev-parse --git-common-dir)" ] || return 1
+  [ -z "$(git_ -C "$wt" status --porcelain --untracked-files=normal 2>/dev/null | head -1)" ] || return 1
+  [ -z "$(git_ -C "$wt" rev-list -1 HEAD --not --remotes 2>/dev/null)" ]
+}
+
+purge() {
+  local wt=$1
+  echo "purge worktree $wt"
+  [ -n "$PURGE_DRY_RUN" ] && return
+  git_ -C "$wt" worktree remove -- "$wt" 2>/dev/null ||
+    echo "purge failed: $wt" >&2
+}
+
+stale() { ! written "$1" -mtime "-$PURGE_DAYS"; }
+
+# 3) t3code worktrees of idle threads (step 1's list), untouched for
+#    $PURGE_DAYS days. Their threads keep their history; continuing one
+#    needs a new worktree.
+if [ "$fresh" = 1 ] && [ -n "${worktrees:-}" ]; then
+  scan_busy
+  while IFS= read -r wt; do
+    [ -d "$wt" ] || continue
+    in_use "$wt" || ! stale "$wt" || ! disposable "$wt" || purge "$wt"
+  done <<<"$worktrees"
+fi
+echo "t3code worktrees purged, $(avail) free"
+
+# 4) Agent worktrees outside t3code (claude/codex create them under
+#    <repo>/.claude/worktrees and similar) in the workspace checkouts: same
+#    rules, judged by age alone because no thread tracks them. Worktrees that
+#    t3code knows about are left to step 3.
+known=$'\n'$(threads "select distinct json_extract(payload_json, '$.worktreePath')
+  from orchestration_v2_projection_threads where json_extract(payload_json, '$.worktreePath') is not null" 2>/dev/null)$'\n' || known=
+scan_busy
+find "$WORKSPACE" -xdev -maxdepth 4 -name node_modules -prune -o -name .git -type d -print 2>/dev/null |
+  while IFS= read -r g; do
+    git_ -C "${g%/.git}" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | tail -n +2
+  done | sort -u |
+  while IFS= read -r wt; do
+    [ -d "$wt" ] || continue
+    case $known in *$'\n'"$wt"$'\n'*) continue ;; esac
+    in_use "$wt" || ! stale "$wt" || ! disposable "$wt" || purge "$wt"
+  done || true
+echo "agent worktrees purged, $(avail) free"
+
+# 5) Install and build output in workspace checkouts nobody touched for
+#    $PURGE_DAYS days (the main clones, not worktrees). Reinstalled by the next
+#    `pnpm install`. Logs only while PURGE_DRY_RUN is set, like steps 3 and 4.
+scan_busy
+find "$WORKSPACE" -xdev -mindepth 1 -maxdepth 4 -name node_modules -prune -o -name .git -type d -print 2>/dev/null |
+  while IFS= read -r g; do
+    d=${g%/.git}
+    in_use "$d" || ! stale "$d" || DRY_RUN=$PURGE_DRY_RUN prune_builds "$d" "${WEB[@]}"
   done || true
 
 echo "sweep end, $(avail) free on $AGENTS"

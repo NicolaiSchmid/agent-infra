@@ -29,7 +29,7 @@
         type = "disk";
         device = "/dev/vdb";
         imageName = "atlas-state";
-        imageSize = "1000G";
+        imageSize = "750G"; # matches atlasStateSize in hosts/black/libvirt.nix
         content = {
           type = "gpt";
           partitions = {
