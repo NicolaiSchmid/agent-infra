@@ -20,7 +20,59 @@
       done
     '';
   };
+  # The slice caps memory and CPU, but with ~15 parallel lanes it still held
+  # 280 processes (load 140) that all swapped against the cap. The gate runs
+  # at most `maxRuns` check runs (a process tree in the slice) at a time and
+  # pauses the others with SIGSTOP, resuming them oldest first.
+  maxRuns = 4;
+  gate = pkgs.writeShellApplication {
+    name = "atlas-agent-checks-gate";
+    runtimeInputs = with pkgs; [coreutils gawk];
+    text = ''
+      procs=/sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs
+      while true; do
+        declare -A member=() runs=()
+        while read -r p; do member[$p]=1; done <"$procs"
+        for p in "''${!member[@]}"; do
+          r=$p
+          while pp=$(awk '{print $4}' "/proc/$r/stat" 2>/dev/null) && [ -n "''${member[$pp]:-}" ]; do
+            r=$pp
+          done
+          runs[$r]+="$p "
+        done
+        i=0
+        # Oldest run first (start time is field 22 of /proc/<pid>/stat).
+        for r in $(for q in "''${!runs[@]}"; do
+          echo "$(awk '{print $22}' "/proc/$q/stat" 2>/dev/null) $q"
+        done | sort -n | awk '{print $2}'); do
+          if [ "$i" -lt ${toString maxRuns} ]; then sig=CONT; else sig=STOP; fi
+          # shellcheck disable=SC2086
+          kill -"$sig" ''${runs[$r]} 2>/dev/null || true
+          i=$((i + 1))
+        done
+        unset member runs
+        sleep 5
+      done
+    '';
+  };
 in {
+  systemd.services.agent-checks-gate = {
+    description = "Run at most ${toString maxRuns} agent check runs at a time";
+    wantedBy = ["multi-user.target"];
+    after = [holder];
+    requires = [holder];
+    # On stop, let every paused check continue.
+    postStop = ''
+      for p in $(cat /sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs 2>/dev/null); do
+        kill -CONT "$p" 2>/dev/null || true
+      done
+    '';
+    serviceConfig = {
+      ExecStart = "${gate}/bin/atlas-agent-checks-gate";
+      Restart = "always";
+    };
+  };
+
   systemd.slices.agent-checks = {
     description = "Checks and dev servers started by agents (capped)";
     sliceConfig = {
