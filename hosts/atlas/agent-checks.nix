@@ -12,8 +12,6 @@
       procs=/sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs
       while true; do
         for p in $(pgrep -u nicolai -f 'tsc|vitest|eslint|next-server|next dev|playwright|esbuild|biome' || true); do
-          # CI jobs run as ghr-* users, but be explicit about runner paths.
-          grep -q github-runners "/proc/$p/cmdline" 2>/dev/null && continue
           echo "$p" >"$procs" 2>/dev/null || true
         done
         sleep 3

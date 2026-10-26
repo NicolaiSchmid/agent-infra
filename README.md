@@ -14,13 +14,11 @@ black   Hetzner bare-metal host
        ├─ t3code
        ├─ hermes
        ├─ codex / claude
-       ├─ github-runners (Linux x86_64, one per repo)
        └─ /srv/agents-state
 
 forge   Apple-silicon macOS build host
   ├─ native T3 Code over Tailscale
-  ├─ native macOS/iOS GitHub Actions runner
-  └─ arm64 Linux VM GitHub Actions runner
+  └─ native macOS/iOS GitHub Actions runners
 ```
 
 `black` is intentionally boring: RAID/NixOS, SSH, Tailscale, libvirt, and UDP
@@ -30,6 +28,13 @@ forwarding into the VM.
 `dotfiles-nix`, owns the persisted state volume, and runs the agent services.
 The VM layer keeps the setup cloneable and movable without tying the workstation
 directly to one provider or physical install.
+
+`forge` runs T3 Code and the self-hosted macOS/iOS GitHub Actions runners.
+Linux CI for `NicolaiSchmid/*` and `apex-cc` runs on Ubicloud managed runners
+(`runs-on: ubicloud-standard-N` in each workflow), not on these machines. The
+`forge-runner-watchdog` timer on atlas points each repository's
+`MACOS_RUNS_ON` variable at Forge while its macOS runners are online and at a
+GitHub-hosted macOS image otherwise.
 
 ### Naming
 
@@ -45,7 +50,7 @@ directly to one provider or physical install.
 
 - `hosts/black/` - bare-metal host, disks, libvirt, Atlas VM definition, network forwarding
 - `hosts/atlas/` - agent VM, state mounts, Tailscale nodes, T3/Hermes overrides
-- `hosts/forge/` - macOS build host, T3 Code, and runner foundations
+- `hosts/forge/` - macOS build host, T3 Code, and macOS runner foundations
 - `modules/keys.nix` - public SSH keys
 - `secrets/` - SOPS notes and encrypted runtime secrets
 - `runbooks/` - bootstrap and migration procedures
@@ -147,7 +152,6 @@ ssh atlas 'docker ps --filter name=hermes'
 
 - [Bootstrap](runbooks/bootstrap.md)
 - [Forge operations](runbooks/forge.md)
-- [Atlas Linux runners](runbooks/atlas-runners.md)
 - [Atlas I/O priorities and build sweep](runbooks/atlas-build-sweep.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)

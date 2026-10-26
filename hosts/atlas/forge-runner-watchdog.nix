@@ -1,6 +1,7 @@
-# Watches the Forge GitHub Actions runners and flips the per-repository
-# LINUX_RUNS_ON / MACOS_RUNS_ON variables between Forge and GitHub-hosted
-# runners, so workflows prefer Forge but fall back when it is offline.
+# Watches the Forge macOS GitHub Actions runners and flips the per-repository
+# MACOS_RUNS_ON variable between Forge and GitHub-hosted macOS runners, so
+# macOS jobs prefer Forge but fall back when it is offline. Linux jobs run on
+# Ubicloud and are not managed here.
 {pkgs, ...}: let
   watchdog = pkgs.writeShellApplication {
     name = "forge-runner-watchdog";
@@ -9,7 +10,7 @@
   };
 in {
   systemd.services.forge-runner-watchdog = {
-    description = "Point GitHub workflow runner variables at Forge when it is online";
+    description = "Point MACOS_RUNS_ON at the Forge macOS runners when they are online";
     after = ["network-online.target"];
     wants = ["network-online.target"];
     serviceConfig = {
