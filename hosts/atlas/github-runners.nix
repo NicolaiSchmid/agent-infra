@@ -37,7 +37,11 @@
   runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
     lib.genList (i:
       lib.nameValuePair
-      (if i == 0 then name else "${name}-${toString (i + 1)}")
+      (
+        if i == 0
+        then name
+        else "${name}-${toString (i + 1)}"
+      )
       repo)
     runnersPerRepo)
   repos));
