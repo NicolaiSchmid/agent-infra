@@ -277,7 +277,13 @@ in {
     # OOM-killed one agent's python3 and the default OOMPolicy=stop then
     # stopped the whole server (its 5th restart). Let the server outlive its
     # children; the kernel still kills whichever process it picked.
-    serviceConfig.OOMPolicy = "continue";
+    serviceConfig = {
+      OOMPolicy = "continue";
+      # Keep the server's (and its sessions') pages in RAM under pressure. On
+      # 2026-10-26 t3 sat in D state on page faults (30 s per request) while
+      # agent jobs swapped; reclaim now takes from the capped slices first.
+      MemoryLow = "14G";
+    };
   };
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''

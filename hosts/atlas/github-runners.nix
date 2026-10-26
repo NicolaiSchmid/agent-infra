@@ -37,7 +37,11 @@
   runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
     lib.genList (i:
       lib.nameValuePair
-      (if i == 0 then name else "${name}-${toString (i + 1)}")
+      (
+        if i == 0
+        then name
+        else "${name}-${toString (i + 1)}"
+      )
       repo)
     runnersPerRepo)
   repos));
@@ -73,7 +77,11 @@
     cacert
   ];
   mkRunner = name: repo: {
-    enable = true;
+    # Off since 2026-10-26: CI next to ~50 agent sessions kept atlas out of
+    # memory (unreachable, hard reset). The watchdog routes Linux jobs to Forge,
+    # then GitHub-hosted, while these runners are offline. Set to true to bring
+    # them back, e.g. once CI has its own machine.
+    enable = false;
     package = runnerPackage;
     url = "https://github.com/${owner}/${repo}";
     name = "atlas-linux-${name}";

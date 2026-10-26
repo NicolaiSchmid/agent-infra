@@ -21,15 +21,24 @@
     '';
   };
   # The slice caps memory and CPU, but with ~15 parallel lanes it still held
-  # 280 processes (load 140) that all swapped against the cap. The gate runs
-  # at most `maxRuns` check runs (a process tree in the slice) at a time and
-  # pauses the others with SIGSTOP, resuming them oldest first.
-  maxRuns = 4;
+  # 280 processes (load 140) that all swapped against the cap. Agents also
+  # start checks as `systemd-run --user` units in the user manager's app.slice,
+  # where they escaped the cap (25G with swap on 2026-10-26). The gate counts
+  # both as runs: a process tree in agent-checks.slice, or a unit in app.slice.
+  # At most `maxRuns` run at a time, oldest first; the rest are paused
+  # (SIGSTOP, or cgroup.freeze for units). Dev servers are never paused, so
+  # long-lived ones cannot hold the slots forever.
+  maxRuns = 5;
+  appSlice = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice";
   gate = pkgs.writeShellApplication {
     name = "atlas-agent-checks-gate";
-    runtimeInputs = with pkgs; [coreutils gawk];
+    runtimeInputs = with pkgs; [coreutils gawk gnugrep];
     text = ''
       procs=/sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs
+      app=${appSlice}
+      server='next dev|next-server|next start|vite( |$)|convex dev|webpack serve|storybook'
+      started() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null; }
+      is_server() { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -Eq "$server"; }
       while true; do
         declare -A member=() runs=()
         while read -r p; do member[$p]=1; done <"$procs"
@@ -40,16 +49,38 @@
           done
           runs[$r]+="$p "
         done
+        list=$(
+          for r in "''${!runs[@]}"; do
+            # shellcheck disable=SC2086
+            if is_server "$r"; then kill -CONT ''${runs[$r]} 2>/dev/null || true; continue; fi
+            echo "$(started "$r") p:$r"
+          done
+          for d in "$app"/*; do
+            [ -e "$d/cgroup.freeze" ] || continue
+            first=
+            while read -r p; do
+              t=$(started "$p") || continue
+              if is_server "$p"; then first=server; break; fi
+              if [ -z "$first" ] || [ "$t" -lt "$first" ]; then first=$t; fi
+            done < <(cat "$d"/cgroup.procs "$d"/*/cgroup.procs 2>/dev/null)
+            case $first in
+            "") ;;
+            server) echo 0 >"$d/cgroup.freeze" 2>/dev/null || true ;;
+            *) echo "$first u:$d" ;;
+            esac
+          done
+        )
         i=0
-        # Oldest run first (start time is field 22 of /proc/<pid>/stat).
-        for r in $(for q in "''${!runs[@]}"; do
-          echo "$(awk '{print $22}' "/proc/$q/stat" 2>/dev/null) $q"
-        done | sort -n | awk '{print $2}'); do
-          if [ "$i" -lt ${toString maxRuns} ]; then sig=CONT; else sig=STOP; fi
+        while read -r _ run; do
+          [ -n "$run" ] || continue
+          if [ "$i" -lt ${toString maxRuns} ]; then go=1; else go=0; fi
           # shellcheck disable=SC2086
-          kill -"$sig" ''${runs[$r]} 2>/dev/null || true
+          case $run in
+          p:*) if [ $go = 1 ]; then kill -CONT ''${runs[''${run#p:}]} 2>/dev/null || true; else kill -STOP ''${runs[''${run#p:}]} 2>/dev/null || true; fi ;;
+          u:*) echo $((1 - go)) >"''${run#u:}/cgroup.freeze" 2>/dev/null || true ;;
+          esac
           i=$((i + 1))
-        done
+        done < <(sort -n <<<"$list")
         unset member runs
         sleep 5
       done
@@ -61,8 +92,11 @@ in {
     wantedBy = ["multi-user.target"];
     after = [holder];
     requires = [holder];
-    # On stop, let every paused check continue.
+    # On stop, let every paused check and frozen unit continue.
     postStop = ''
+      for f in ${appSlice}/*/cgroup.freeze ${appSlice}/cgroup.freeze; do
+        echo 0 >"$f" 2>/dev/null || true
+      done
       for p in $(cat /sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs 2>/dev/null); do
         kill -CONT "$p" 2>/dev/null || true
       done
@@ -71,6 +105,15 @@ in {
       ExecStart = "${gate}/bin/atlas-agent-checks-gate";
       Restart = "always";
     };
+  };
+
+  # The user manager's app.slice, where `systemd-run --user` units land.
+  systemd.user.slices.app.sliceConfig = {
+    CPUWeight = 20;
+    IOWeight = 10;
+    MemoryHigh = "10G";
+    MemoryMax = "12G";
+    MemorySwapMax = "3G";
   };
 
   systemd.slices.agent-checks = {
