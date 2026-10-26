@@ -1,7 +1,8 @@
 # Persistent x86_64 Linux GitHub Actions runners for Nicolai's repositories.
 #
 # Two runners per repository (`atlas-linux-<repo>`, `atlas-linux-<repo>-2`), so
-# a short gate job is not stuck behind a 13-minute build of the same repository.
+# a short gate job is not stuck behind a 13-minute build of the same repository
+# (mosaic has a third, see runnersPerRepo).
 # Each is a sandboxed systemd service (NixOS services.github-runners): own
 # static user, ProtectSystem=strict, PrivateUsers, no Docker socket. A job can only write its own work dir and tool cache under
 # /srv/agents-state/github-runners/; it cannot reach t3code, Hermes or the
@@ -33,13 +34,21 @@
   };
   # Runners per repository. The first keeps the bare attribute name (and its
   # registration, user and directories); additional ones get a -N suffix.
-  runnersPerRepo = 2;
+  # mosaic gets a third: about ten agent lanes push to it, and on 2026-10-21
+  # its quality job waited up to 4.5 h. forge-linux-mosaic adds no heavy-job
+  # capacity (forge serialises quality and tier1 across all repositories).
+  # atlas-ci.slice still caps all runners together, so this adds parallelism
+  # within CI's budget, not memory taken from the agents.
+  runnersPerRepo = name:
+    if name == "mosaic"
+    then 3
+    else 2;
   runners = lib.listToAttrs (lib.concatLists (lib.mapAttrsToList (name: repo:
     lib.genList (i:
       lib.nameValuePair
       (if i == 0 then name else "${name}-${toString (i + 1)}")
       repo)
-    runnersPerRepo)
+    (runnersPerRepo name))
   repos));
   baseDir = "/srv/agents-state/github-runners";
   tokenFile = "/srv/agents-state/secrets/github-runner.token";
@@ -109,6 +118,13 @@
       # want a crashed listener back without manual intervention.
       Restart = lib.mkForce "on-failure";
       RestartSec = 10;
+      # The module denies capset, and systemd kills a denied call with SIGSYS.
+      # Playwright's chrome-headless-shell calls it while setting up its
+      # processes, so mosaic's tier1 died with "Target crashed" (audit:
+      # sig=31 syscall=126). Listed after the module's deny list, a plain
+      # name takes it back out. With CapabilityBoundingSet empty and
+      # NoNewPrivileges, capset can only drop capabilities.
+      SystemCallFilter = ["capset"];
     };
   };
 in {
@@ -126,7 +142,7 @@ in {
     })
   runners;
 
-  # 16 runners at up to 11G each could take far more than atlas's 50G. On
+  # 17 runners at up to 11G each could take far more than atlas's 50G. On
   # 2026-10-18 four busy runners held ~19G when the kernel ran out of memory
   # and killed into t3code. The slice caps CI as a whole: under pressure the
   # runners are throttled and, past MemoryMax, OOM-killed among themselves.
