@@ -21,13 +21,12 @@
     '';
   };
   # The slice caps memory and CPU, but with ~15 parallel lanes it still held
-  # 280 processes (load 140) that all swapped against the cap. Agents also
-  # start checks as `systemd-run --user` units in the user manager's app.slice,
-  # where they escaped the cap (25G with swap on 2026-10-26). The gate counts
-  # both as runs: a process tree in agent-checks.slice, or a unit in app.slice.
-  # At most `maxRuns` run at a time, oldest first; the rest are paused
-  # (SIGSTOP, or cgroup.freeze for units). Dev servers are never paused, so
-  # long-lived ones cannot hold the slots forever.
+  # 280 processes (load 140) that all swapped against the cap. The gate runs at
+  # most `maxRuns` check runs (a process tree in agent-checks.slice) at a time,
+  # oldest first, and pauses the rest with SIGSTOP. Dev servers are never
+  # paused, so long-lived ones cannot hold the slots forever.
+  # It does not touch user-manager units: freezing a unit while the user
+  # manager was still forking into it hung the manager (2026-10-26 12:07).
   maxRuns = 5;
   appSlice = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice";
   gate = pkgs.writeShellApplication {
@@ -35,7 +34,6 @@
     runtimeInputs = with pkgs; [coreutils gawk gnugrep];
     text = ''
       procs=/sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs
-      app=${appSlice}
       server='next dev|next-server|next start|vite( |$)|convex dev|webpack serve|storybook'
       started() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null; }
       is_server() { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -Eq "$server"; }
@@ -55,20 +53,6 @@
             if is_server "$r"; then kill -CONT ''${runs[$r]} 2>/dev/null || true; continue; fi
             echo "$(started "$r") p:$r"
           done
-          for d in "$app"/*; do
-            [ -e "$d/cgroup.freeze" ] || continue
-            first=
-            while read -r p; do
-              t=$(started "$p") || continue
-              if is_server "$p"; then first=server; break; fi
-              if [ -z "$first" ] || [ "$t" -lt "$first" ]; then first=$t; fi
-            done < <(cat "$d"/cgroup.procs "$d"/*/cgroup.procs 2>/dev/null)
-            case $first in
-            "") ;;
-            server) echo 0 >"$d/cgroup.freeze" 2>/dev/null || true ;;
-            *) echo "$first u:$d" ;;
-            esac
-          done
         )
         i=0
         while read -r _ run; do
@@ -77,7 +61,6 @@
           # shellcheck disable=SC2086
           case $run in
           p:*) if [ $go = 1 ]; then kill -CONT ''${runs[''${run#p:}]} 2>/dev/null || true; else kill -STOP ''${runs[''${run#p:}]} 2>/dev/null || true; fi ;;
-          u:*) echo $((1 - go)) >"''${run#u:}/cgroup.freeze" 2>/dev/null || true ;;
           esac
           i=$((i + 1))
         done < <(sort -n <<<"$list")
@@ -92,7 +75,8 @@ in {
     wantedBy = ["multi-user.target"];
     after = [holder];
     requires = [holder];
-    # On stop, let every paused check and frozen unit continue.
+    # On stop, let every paused check continue, and thaw anything an older
+    # version of the gate froze in the user manager's app.slice.
     postStop = ''
       for f in ${appSlice}/*/cgroup.freeze ${appSlice}/cgroup.freeze; do
         echo 0 >"$f" 2>/dev/null || true
@@ -111,9 +95,9 @@ in {
   systemd.user.slices.app.sliceConfig = {
     CPUWeight = 20;
     IOWeight = 10;
+    # Soft limit only: a hard MemoryMax next to the gate's freezing left the
+    # kernel with "no killable processes" in a loop (journald at 210 MB/s).
     MemoryHigh = "10G";
-    MemoryMax = "12G";
-    MemorySwapMax = "3G";
   };
 
   systemd.slices.agent-checks = {
