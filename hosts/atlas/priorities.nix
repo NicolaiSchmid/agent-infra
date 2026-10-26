@@ -25,8 +25,8 @@
     '';
 in {
   # Batch work: atlas-ci.slice (github-runners.nix) and, with docker.nix,
-  # atlas-containers.slice. One ceiling for both keeps ~22G for t3code, its
-  # agents and the system. MemorySwapMax because zram's compressed pages are
+  # atlas-containers.slice. One ceiling for both keeps ~34G for t3code, its
+  # agents, their checks and the system. MemorySwapMax because zram's compressed pages are
   # not charged to the cgroup, so unlimited swap would let a capped slice
   # spill into host RAM anyway.
   systemd.slices.atlas = {
@@ -34,8 +34,10 @@ in {
     sliceConfig = {
       CPUWeight = 20;
       IOWeight = 20;
-      MemoryHigh = "24G";
-      MemoryMax = "28G";
+      # 14/16G since 2026-10-26: at 24/28G, CI next to ~40 agent sessions and
+      # the agent checks left atlas without memory (unreachable, hard reset).
+      MemoryHigh = "14G";
+      MemoryMax = "16G";
       MemorySwapMax = "4G";
     };
   };

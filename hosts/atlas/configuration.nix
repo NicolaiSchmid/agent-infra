@@ -127,7 +127,14 @@ in {
     "console=ttyS0,115200"
     "console=tty0"
   ];
-  boot.kernel.sysctl."net.ipv4.ping_group_range" = "0 2147483647";
+  boot.kernel.sysctl = {
+    "net.ipv4.ping_group_range" = "0 2147483647";
+    # All magic SysRq functions. When atlas is too starved for SSH, black can
+    # still send Alt+SysRq+F (`virsh send-key atlas KEY_LEFTALT KEY_SYSRQ KEY_F`)
+    # to OOM-kill the biggest process instead of resetting the VM. The NixOS
+    # default (16, sync only) blocked that on 2026-10-26.
+    "kernel.sysrq" = 1;
+  };
 
   # Both virtio disks are fully allocated nodatacow files on black with
   # discard='ignore' (hosts/black/libvirt.nix), so trims never reach the host.
