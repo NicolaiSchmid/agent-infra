@@ -26,25 +26,40 @@
   # It does not touch user-manager units: freezing a unit while the user
   # manager was still forking into it hung the manager (2026-10-26 12:07).
   maxRuns = 5;
+  # Above this much slice memory the gate stays at maxRuns whatever the load.
+  memoryBound = 8 * 1024 * 1024 * 1024;
   appSlice = "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice";
   gate = pkgs.writeShellApplication {
     name = "atlas-agent-checks-gate";
-    runtimeInputs = with pkgs; [coreutils gawk gnugrep];
+    runtimeInputs = with pkgs; [coreutils gawk gnugrep gnused systemd];
     text = ''
       procs=/sys/fs/cgroup/agent.slice/agent-checks.slice/${holder}/cgroup.procs
       server='next dev|next-server|next start|vite( |$)|convex dev|webpack serve|storybook'
-      started() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null; }
+      # Fields counted after the last ")": comm (field 2) may hold spaces
+      # ("npm exec vitest"), which shifted plain awk fields. Start time is
+      # field 22, the 20th after ")"; ppid is field 4, the 2nd.
+      field() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk -v f="$2" '{print $f}'; }
+      started() { field "$1" 20; }
       is_server() { tr '\0' ' ' <"/proc/$1/cmdline" 2>/dev/null | grep -Eq "$server"; }
       while true; do
         declare -A member=() runs=()
         while read -r p; do member[$p]=1; done <"$procs"
         for p in "''${!member[@]}"; do
           r=$p
-          while pp=$(awk '{print $4}' "/proc/$r/stat" 2>/dev/null) && [ -n "''${member[$pp]:-}" ]; do
+          while pp=$(field "$r" 2) && [ -n "''${member[$pp]:-}" ]; do
             r=$pp
           done
           runs[$r]+="$p "
         done
+        # The holder's own `sleep infinity` is not a check run.
+        unset "runs[$(systemctl show -p MainPID --value ${holder})]"
+        # More runs while the host has room; the slice's memory wins over load.
+        load=$(cut -d. -f1 /proc/loadavg)
+        mem=$(cat /sys/fs/cgroup/agent.slice/agent-checks.slice/memory.current)
+        if [ "$mem" -ge ${toString memoryBound} ]; then max=${toString maxRuns}
+        elif [ "$load" -lt 20 ]; then max=8
+        elif [ "$load" -lt 40 ]; then max=6
+        else max=${toString maxRuns}; fi
         list=$(
           for r in "''${!runs[@]}"; do
             # shellcheck disable=SC2086
@@ -55,7 +70,7 @@
         i=0
         while read -r _ run; do
           [ -n "$run" ] || continue
-          if [ "$i" -lt ${toString maxRuns} ]; then go=1; else go=0; fi
+          if [ "$i" -lt "$max" ]; then go=1; else go=0; fi
           # shellcheck disable=SC2086
           case $run in
           p:*) if [ $go = 1 ]; then kill -CONT ''${runs[''${run#p:}]} 2>/dev/null || true; else kill -STOP ''${runs[''${run#p:}]} 2>/dev/null || true; fi ;;
@@ -69,7 +84,7 @@
   };
 in {
   systemd.services.agent-checks-gate = {
-    description = "Run at most ${toString maxRuns} agent check runs at a time";
+    description = "Run ${toString maxRuns}-8 agent check runs at a time, oldest first";
     wantedBy = ["multi-user.target"];
     after = [holder];
     requires = [holder];
