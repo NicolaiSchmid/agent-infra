@@ -20,7 +20,6 @@ in {
     ./sops.nix
     ./tailscale.nix
     ./forge-runner-watchdog.nix
-    ./github-runners.nix
     ./priorities.nix
     ./build-sweep.nix
     ./agent-checks.nix
@@ -226,7 +225,7 @@ in {
   # agent-checks cap (load 140). VITEST_MAX_WORKERS (vitest 4+) overrides even
   # a repo's maxWorkers; the THREADS/FORKS pair covers the vitest 2/3 repos.
   # Set in /etc/set-environment, which every agent shell sources per command,
-  # so it applies without restarting t3code. CI runners do not read it.
+  # so it applies without restarting t3code.
   environment.variables = {
     VITEST_MAX_WORKERS = "2";
     VITEST_MAX_THREADS = "2";

@@ -1,8 +1,10 @@
 # Forge operations
 
 `forge` is the Apple-silicon build host. It runs T3 Code and macOS GitHub
-Actions runners natively. `forge-linux`, a Lima VM, provides isolated arm64
-Ubuntu runners with Docker.
+Actions runners natively. Linux CI no longer runs here: since 2026-10-26 Linux
+jobs for `NicolaiSchmid/*` and `apex-cc` run on Ubicloud managed runners
+(`runs-on: ubicloud-standard-N`). The `forge-linux` Lima VM that used to host
+arm64 Linux runners is retired; see [Decommission the Linux VM](#decommission-the-linux-vm).
 
 ## Connect and deploy
 
@@ -25,7 +27,6 @@ Verify the core services:
 ```bash
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3773
 /Applications/Tailscale.app/Contents/MacOS/Tailscale serve status
-limactl list forge-linux
 ```
 
 T3 Code is available inside the Tailnet at:
@@ -91,18 +92,19 @@ separate installation directories and services when the same host serves more
 than one scope. Repository runners currently use these names:
 
 ```text
-forge-macos-june       forge-linux-june
-forge-macos-fifthset   forge-linux-fifthset
-forge-macos-mietprofi  forge-linux-mietprofi
-forge-macos-nunc-immo  forge-linux-nunc-immo
-forge-macos-wasc-io    forge-linux-wasc-io
-forge-macos-mosaic     forge-linux-mosaic
-forge-macos-nicolaischmid-de  forge-linux-nicolaischmid-de
-forge-macos-steno      forge-linux-steno
+forge-macos-june
+forge-macos-fifthset
+forge-macos-mietprofi
+forge-macos-nunc-immo
+forge-macos-wasc-io
+forge-macos-mosaic            (repository renamed to vamoo)
+forge-macos-nicolaischmid-de
+forge-macos-steno
 forge-macos-steno-2
 forge-macos-steno-3
 forge-macos-steno-4
-forge-macos-ilovegrain forge-linux-ilovegrain
+forge-macos-ilovegrain
+forge-macos-ilovegrain-2
 forge-macos-zero-mobile
 ```
 
@@ -111,12 +113,10 @@ push and its agents open many pull requests at once; on 2026-09-28 ten runs
 were queued behind two runners. Additional runners for a scope are plain
 copies of an existing runner directory (`rsync -a --exclude _work --exclude
 _diag --exclude '.runner' --exclude '.runner_migrated' --exclude '.credentials*'
---exclude .env --exclude .path --exclude .service`, plus `--exclude home` for
-the Linux runners), registered under the `-N` name with the same labels. A
-copied `.runner_migrated` makes `config.sh` refuse with "already configured";
-a new repository's runner is copied the same way (forge-*-ilovegrain were,
-2026-10-12; forge-macos-zero-mobile, 2026-10-16, has no Linux sibling
-because its Linux jobs run on atlas only). Every macOS runner runs as `nschmid10049`; steno's workflow keeps
+--exclude .env --exclude .path --exclude .service`), registered under the
+`-N` name with the same labels. A copied `.runner_migrated` makes `config.sh`
+refuse with "already configured"; a new repository's runner is copied the
+same way (forge-macos-ilovegrain was, 2026-10-12). Every macOS runner runs as `nschmid10049`; steno's workflow keeps
 build products per runner under `~/Library/Caches/steno-ci/<runner name>/`.
 Memory allows more: with two xcodebuilds running, the runner processes and
 builds use about 1.3 GiB and swap stays empty. The host has 10 cores, so more
@@ -125,7 +125,7 @@ than four concurrent xcodebuilds would mostly contend for CPU.
 Create registration tokens in the target GitHub repository or organization.
 Tokens expire quickly, so generate them only when ready to run these commands.
 
-Register macOS:
+Register a macOS runner:
 
 ```bash
 cd ~/actions-runner-macos-SCOPE
@@ -135,105 +135,39 @@ cd ~/actions-runner-macos-SCOPE
 ./svc.sh start
 ```
 
-Register Linux:
-
-```bash
-limactl shell forge-linux
-cd /opt/actions-runner-SCOPE
-./config.sh --url GITHUB_URL --token REGISTRATION_TOKEN \
-  --name forge-linux-SCOPE --labels forge,linux,arm64,docker --unattended
-mkdir -p home && echo "HOME=$PWD/home" >> .env   # private HOME per runner
-cat >> .env <<'EOF'
-ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/forge-hooks/job-started.sh
-ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/forge-hooks/job-completed.sh
-EOF
-sudo ./svc.sh install
-unit=$(systemctl list-unit-files --no-legend 'actions.runner.*SCOPE*.service' | awk '{print $1}')
-sudo mkdir -p /etc/systemd/system/$unit.d
-printf '[Service]\nRestart=always\nRestartSec=10\nKillMode=control-group\n' | sudo tee /etc/systemd/system/$unit.d/restart.conf
-sudo systemctl daemon-reload
-sudo ./svc.sh start
-```
-
-The `Restart=always` drop-in matters: `svc.sh` installs units without a restart
-policy, and a job that gets OOM-killed by the kernel (mosaic E2E peaked at
-10 GiB) leaves the unit `failed` and the runner offline until someone restarts
-it. All eight Linux units carry the drop-in as of 2026-09-25.
-
-Every Linux runner runs as the same VM user. Without the per-runner `HOME`
-in `.env`, concurrent jobs race in `~/setup-pnpm` and the pnpm store
-(`ENOTEMPTY`, `ERR_PNPM_ENOENT`). The VM has 6 CPUs and 16 GiB (the host
-keeps 8 GiB for macOS and Xcode); a Next.js production build alone needs more
-than 2 GiB of Node heap. Resize a running instance with
-`limactl stop forge-linux && limactl edit forge-linux --cpus 6 --memory 16 && limactl start forge-linux`.
-
-### Heavy-job serialization
-
-Eight repositories share the VM, and one E2E run (Next.js server plus
-Chromium) peaked at 10 GiB, so heavy jobs are serialized across runners with
-a shared lock implemented as runner hooks in `/opt/forge-hooks/`:
-`job-started.sh` blocks until it can `mkdir /var/lock/forge-heavy` when
-`"owner/repo job_id"` matches a regex in `heavy-jobs.txt`; `job-completed.sh`
-releases it. The lock records its holder's `Runner.Worker` PID; a lock whose
-holder is gone (job cancelled or killed before the completed hook ran) or older
-than two hours is treated as stale, and a waiter whose own job was cancelled
-exits instead of lingering. The wait shows
-up in the job's "Set up runner" step and counts against `timeout-minutes`.
-Edit `heavy-jobs.txt` on the VM (and here) to add jobs; no restart needed.
-Runner units also carry `Restart=always` so an OOM-killed job cannot leave a
-runner offline.
-
 ### Runner selection from workflows
 
-Workflows in june, fifthset, mietprofi and mosaic do not hard-code labels. They read
-repository variables that the `forge-runner-watchdog` timer on atlas
-(`hosts/atlas/forge-runner-watchdog.nix`) keeps pointed at Forge while its
-runners are online, and at GitHub-hosted runners otherwise:
+The macOS jobs in june, fifthset, mietprofi, steno and ilovegrain do not
+hard-code labels. They read the `MACOS_RUNS_ON` repository variable, which the
+`forge-runner-watchdog` timer on atlas (`hosts/atlas/forge-runner-watchdog.sh`)
+keeps pointed at `["self-hosted","macOS","ARM64"]` while that repository's
+Forge macOS runners are online, and at the hosted image the workflow uses as
+its default otherwise (`macos-15`; `macos-26` for ilovegrain):
 
 ```yaml
-runs-on: ${{ fromJSON(vars.LINUX_RUNS_ON || '"ubuntu-latest"') }}
 runs-on: ${{ fromJSON(vars.MACOS_RUNS_ON || '"macos-15"') }}
 ```
 
-`journalctl -u forge-runner-watchdog` on atlas shows every flip.
+`journalctl -u forge-runner-watchdog` on atlas shows every flip. Add a
+repository to the `repos` table in the script when its workflows start reading
+`MACOS_RUNS_ON`. ilovegrain's `IOS_RELEASE_RUNS_ON` (release pinned to the
+`ios`-labelled runner) is set by hand and not managed by the watchdog.
+zero-mobile and the wasc-io repositories hard-code Forge labels or carry their
+own default.
 
 Target the runners from a workflow with the labels GitHub assigned at
 registration (matching is cumulative; all listed labels must be present):
 
 ```yaml
-runs-on: [self-hosted, Linux, ARM64]   # forge-linux VM (Ubuntu 24.04 arm64, Docker)
 runs-on: [self-hosted, macOS, ARM64]   # native forge (Xcode, simulators)
 ```
 
-Each scope has one Linux runner and, except for steno, one macOS runner, so
-jobs inside one repository run serially per platform. Register another runner
-directory for a scope if that becomes a bottleneck (see steno above).
+Most scopes have one macOS runner, so macOS jobs inside one repository run
+serially. Register another runner directory for a scope if that becomes a
+bottleneck (see steno above).
 
-For mietprofi, mosaic and nicolaischmid.de the watchdog sets `LINUX_RUNS_ON`
-to `["self-hosted","Linux"]` while both atlas and this VM are online, so
-GitHub gives each Linux job to whichever runner is idle and the VM takes the
-overflow. june and fifthset stay on atlas only: their expo exports run the
-x86_64-only `hermesc`, which is emulated here.
-
-The Linux VM is arm64. `qemu-user-static` registers a binfmt handler so
-x86_64-only Linux binaries shipped in npm packages still run (slower);
-`hermes-compiler`'s `hermesc`, used by `expo export`, is the known case.
-Rosetta would be faster but needs `softwareupdate --install-rosetta` (root) on
-the host plus `rosetta: {enabled: true, binfmt: true}` in the Lima config.
-
-The Linux VM ships `git`, `jq`, `curl`, `python3`/`pip3`, Docker, Node 24 LTS
-with `npm`/`npx`, `yarn` 1.x and `pnpm` (installed with `npm -g`, not corepack shims, which refuse to run in a project that pins another `packageManager`), `gh`, and
-`build-essential`. Pinned toolchain versions still come from `actions/setup-*`
-steps, which support arm64 Linux; the system Node exists so that actions which
-shell out to `yarn` or `npm` without a setup step (e.g.
-`expo/expo-github-action`) find them, as they do on the hosted image. Jobs that rely on
-the GitHub-hosted image's preinstalled tooling (`JAVA_HOME_17_X64`,
-`ANDROID_HOME`, x64-only binaries) stay on `ubuntu-latest`; the fifthset Android
-build is the current example.
-
-Do not give untrusted pull requests access to either self-hosted runner. A job
-on the macOS runner can access the host account and signing material; a job in
-the Linux VM can control Docker inside that VM.
+Do not give untrusted pull requests access to the self-hosted runners. A job
+on a macOS runner can access the host account and signing material.
 
 ## Unattended operation
 
@@ -249,9 +183,8 @@ the Linux VM can control Docker inside that VM.
   updates.
 - All macOS runner services are per-user LaunchAgents and the Tailscale app is
   a login item, so the `nschmid10049` GUI session must be logged in. After an
-  authenticated restart (macOS update) the machine boots to the login window:
-  the Lima VM and its Linux runners come back (system daemon) but Tailscale and
-  the macOS runners do not. Log in via Screen Sharing on the LAN
+  authenticated restart (macOS update) the machine boots to the login window,
+  and Tailscale and the macOS runners stay down until someone logs in. Log in via Screen Sharing on the LAN
   (`open vnc://forge.local`) to restore them; SSH works on the LAN meanwhile.
   `launchctl bootstrap gui/<uid>` fails from SSH without a GUI session.
 
@@ -260,6 +193,59 @@ the Linux VM can control Docker inside that VM.
 ```bash
 tail -f ~/Library/Logs/t3code.log
 tail -f ~/Library/Logs/t3code.error.log
-tail -f ~/Library/Logs/forge-linux.log
-tail -f ~/Library/Logs/forge-linux.error.log
 ```
+
+## Decommission the Linux VM
+
+One-off checklist for retiring `forge-linux` (October 2026; Linux CI moved to
+Ubicloud). The configuration no longer declares the VM, its launchd daemon,
+`lima` or `qemu`, but nothing on the machine is removed automatically.
+
+1. Check no Linux job still needs it: every workflow in the affected
+   repositories uses `ubicloud-standard-N` or a hosted image, not
+   `vars.LINUX_RUNS_ON` or `[self-hosted, Linux, ...]`.
+2. Deploy the new configuration (as above). nix-darwin unloads the removed
+   `org.nixos.forge-linux` daemon; check, and remove it by hand if it is still
+   loaded:
+
+   ```bash
+   sudo launchctl print system/org.nixos.forge-linux >/dev/null 2>&1 &&
+     sudo launchctl bootout system/org.nixos.forge-linux
+   ```
+
+3. Stop and delete the VM. `limactl` is no longer on the system PATH after the
+   switch, so run it from nixpkgs (or do this step before the switch):
+
+   ```bash
+   nix run nixpkgs#lima -- stop forge-linux
+   nix run nixpkgs#lima -- delete forge-linux
+   nix run nixpkgs#lima -- prune          # download cache in ~/Library/Caches/lima
+   ```
+
+4. Deregister the Linux runners from GitHub (from any machine with `gh`
+   authenticated as an admin of these scopes). They show as offline once the
+   VM is gone:
+
+   ```bash
+   for repo in june fifthset mietprofi vamoo nicolaischmid.de steno ilovegrain; do
+     gh api "repos/NicolaiSchmid/$repo/actions/runners?per_page=100" \
+       --jq '.runners[] | select(.name | startswith("forge-linux-")) | .id' |
+       while read -r id; do gh api -X DELETE "repos/NicolaiSchmid/$repo/actions/runners/$id"; done
+   done
+   for org in nunc-immo wasc-io; do
+     gh api "orgs/$org/actions/runners?per_page=100" \
+       --jq '.runners[] | select(.name | startswith("forge-linux-")) | .id' |
+       while read -r id; do gh api -X DELETE "orgs/$org/actions/runners/$id"; done
+   done
+   ```
+
+5. Free the disk: the VM held about 65 GiB in `~/.lima` (October 2026).
+   `limactl delete` removes `~/.lima/forge-linux`; remove `~/.lima` entirely if
+   `limactl list` shows no other instance, and the old logs:
+
+   ```bash
+   rm -f ~/Library/Logs/forge-linux.log ~/Library/Logs/forge-linux.error.log
+   du -sh ~/.lima ~/Library/Caches/lima 2>/dev/null
+   ```
+
+   The weekly nix GC (Sunday 04:15) collects the old lima/qemu store paths.

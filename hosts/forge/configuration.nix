@@ -67,15 +67,6 @@
       --mode web --host 127.0.0.1 --port 3773 --no-browser \
       --base-dir "${stateDir}" "${workspace}"
   '';
-  linuxVmConfig = ./lima/forge-linux.yaml;
-  linuxVmStart = pkgs.writeShellScript "forge-linux-start" ''
-    set -euo pipefail
-    export HOME="${homeDir}"
-    if ${pkgs.lima}/bin/limactl list --json 2>/dev/null | ${pkgs.jq}/bin/jq -e 'select(.name == "forge-linux")' >/dev/null; then
-      exec ${pkgs.lima}/bin/limactl start forge-linux
-    fi
-    exec ${pkgs.lima}/bin/limactl start --name=forge-linux ${linuxVmConfig}
-  '';
 in {
   system.primaryUser = username;
   system.stateVersion = 5;
@@ -116,8 +107,6 @@ in {
     cliTools
     ++ agentClis
     ++ (with pkgs; [
-      lima
-      qemu
       rsync
     ]);
 
@@ -157,17 +146,6 @@ in {
       ProcessType = "Interactive";
       StandardOutPath = "${homeDir}/Library/Logs/t3code.log";
       StandardErrorPath = "${homeDir}/Library/Logs/t3code.error.log";
-    };
-  };
-
-  launchd.daemons.forge-linux = {
-    command = "${linuxVmStart}";
-    serviceConfig = {
-      UserName = username;
-      GroupName = "staff";
-      RunAtLoad = true;
-      StandardOutPath = "${homeDir}/Library/Logs/forge-linux.log";
-      StandardErrorPath = "${homeDir}/Library/Logs/forge-linux.error.log";
     };
   };
 }
