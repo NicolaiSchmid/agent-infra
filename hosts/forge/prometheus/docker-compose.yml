@@ -29,7 +29,8 @@ services:
       - /dev/net/tun:/dev/net/tun
 
   cli-proxy-api:
-    image: eceasy/cli-proxy-api:v8.0.45
+    build: .
+    image: prometheus-cli-proxy-api:local
     restart: unless-stopped
     network_mode: service:tailscale
     environment:
@@ -39,5 +40,6 @@ services:
       - /opt/prometheus/config.yaml:/CLIProxyAPI/config.yaml
       - /opt/prometheus/auths:/root/.cli-proxy-api
       - /opt/prometheus/logs:/CLIProxyAPI/logs
+      - /opt/prometheus/usage:/CLIProxyAPI/usage
     depends_on:
       - tailscale

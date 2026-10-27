@@ -23,6 +23,7 @@ the tailnet: `https://prometheus.takaya-buri.ts.net`. Pattern from
 | `/opt/prometheus/auths/` | OAuth credentials, one JSON per account |
 | `/opt/prometheus/ts-state/` | Tailscale node state |
 | `/opt/prometheus/logs/` | proxy logs |
+| `/opt/prometheus/usage/` | usage-statistics plugin SQLite (`usage.db`) |
 
 ## Install
 
@@ -38,6 +39,18 @@ cd ~/prometheus && docker compose up -d
 
 Check: `curl -s https://prometheus.takaya-buri.ts.net/v1/models -H "Authorization: Bearer <access key>" | head -c 300`.
 Panel: `https://prometheus.takaya-buri.ts.net/management.html` (management key).
+
+## Plugins
+
+Baked into the image by `Dockerfile`, pinned by version + sha256 (plugins run
+in-process and see every credential, so review the source before bumping):
+
+- [usage-statistics](https://github.com/Fwindy/cpa-usage-statistics) v0.2.0 —
+  per-request tokens/latency/TTFT/failures in `/opt/prometheus/usage/usage.db`.
+  Query: `GET /v0/management/plugins/usage-statistics/usage?start=<RFC3339>&end=<RFC3339>`
+  (management key). Enabled via `plugins:` in `config.yaml`.
+
+After changing the Dockerfile: `docker compose build && docker compose up -d cli-proxy-api`.
 
 ## Sign in accounts
 

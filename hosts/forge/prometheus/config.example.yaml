@@ -34,3 +34,14 @@ oauth:
 observability:
   usage:
     usage-statistics-enabled: true
+
+# Baked into the image by ./Dockerfile (pinned + checksummed).
+plugins:
+  enabled: true
+  dir: "plugins"
+  configs:
+    usage-statistics:
+      enabled: true
+      priority: 100
+      data_dir: "/CLIProxyAPI/usage"
+      retention_days: 0
