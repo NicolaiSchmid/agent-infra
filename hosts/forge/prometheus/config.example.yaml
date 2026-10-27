@@ -1,0 +1,36 @@
+# Copy to /opt/prometheus/config.yaml in the forge-linux VM and fill in the
+# two secrets. Never commit the real file. Full reference:
+# https://github.com/router-for-me/CLIProxyAPI/blob/main/config.example.yaml
+config-version: 8
+
+server:
+  # Shares the tailscale container's network namespace; Tailscale Serve is
+  # the only way in.
+  host: "127.0.0.1"
+  port: 8317
+  trusted-proxies: ["127.0.0.1", "::1"]
+
+management:
+  allow-remote: true
+  # Plaintext here is hashed on first start. Empty disables the panel/API.
+  secret-key: "<management key>"
+
+access:
+  # What Claude Code (ANTHROPIC_AUTH_TOKEN) and Codex send.
+  api-keys:
+    - "<client access key>"
+
+routing:
+  strategy: "round-robin"
+  session-affinity: true
+  session-affinity-ttl: "1h"
+  retry:
+    request-retry: 3
+    max-retry-interval: 30
+
+oauth:
+  auth-dir: "/root/.cli-proxy-api"
+
+observability:
+  usage:
+    usage-statistics-enabled: true
