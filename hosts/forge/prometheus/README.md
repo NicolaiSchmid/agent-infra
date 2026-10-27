@@ -50,6 +50,12 @@ in-process and see every credential, so review the source before bumping):
   Query: `GET /v0/management/plugins/usage-statistics/usage?start=<RFC3339>&end=<RFC3339>`
   (management key). Enabled via `plugins:` in `config.yaml`.
 
+- [Fwindy panel](https://github.com/Fwindy/Cli-Proxy-API-Management-Center)
+  `v20261028-build1` — management UI with usage/cost pages for the plugin.
+  Baked in at `/CLIProxyAPI/static/management.html`; `disable-auto-update-panel: true`
+  because the fork auto-publishes upstream merges every 6 h. Reviewed 2026-10-27:
+  same-origin API only, extra fetch only to models.dev on "sync prices".
+
 After changing the Dockerfile: `docker compose build && docker compose up -d cli-proxy-api`.
 
 ## Sign in accounts

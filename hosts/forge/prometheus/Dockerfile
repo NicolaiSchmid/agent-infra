@@ -19,5 +19,16 @@ RUN set -eu; \
     mkdir -p "/plugins/linux/$TARGETARCH"; \
     unzip -j "/tmp/$zip" usage-statistics.so -d "/plugins/linux/$TARGETARCH"
 
+# Fwindy/Cli-Proxy-API-Management-Center: upstream panel + usage/cost pages for
+# the usage-statistics plugin. Reviewed release pinned here; auto-update is off
+# in config.yaml because the fork auto-publishes upstream merges every 6 h.
+# Only extra outbound fetch: models.dev, on "sync prices" click.
+ARG PANEL_RELEASE=v20261028-build1
+ARG PANEL_SHA256=d8c1e6496084d438e1fea0fdaba37a4f3cc13e1a810917ce41aedc1856305674
+RUN set -eu; mkdir -p /static; \
+    curl -fsSLo /static/management.html "https://github.com/Fwindy/Cli-Proxy-API-Management-Center/releases/download/${PANEL_RELEASE}/management.html"; \
+    echo "$PANEL_SHA256  /static/management.html" | sha256sum -c -
+
 FROM eceasy/cli-proxy-api:${CLI_PROXY_VERSION}
 COPY --from=plugins /plugins /CLIProxyAPI/plugins
+COPY --from=plugins /static/management.html /CLIProxyAPI/static/management.html

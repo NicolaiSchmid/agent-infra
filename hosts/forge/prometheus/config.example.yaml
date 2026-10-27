@@ -14,6 +14,10 @@ management:
   allow-remote: true
   # Plaintext here is hashed on first start. Empty disables the panel/API.
   secret-key: "<management key>"
+  # Panel is baked into the image (Dockerfile, pinned + reviewed); never
+  # replace it from GitHub at runtime.
+  disable-auto-update-panel: true
+  panel-github-repository: "https://github.com/Fwindy/Cli-Proxy-API-Management-Center"
 
 access:
   # What Claude Code (ANTHROPIC_AUTH_TOKEN) and Codex send.

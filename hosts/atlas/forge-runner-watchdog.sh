@@ -12,7 +12,6 @@ declare -A repos=(
   [NicolaiSchmid/june]=macos-15
   [NicolaiSchmid/fifthset]=macos-15
   [NicolaiSchmid/mietprofi]=macos-15
-  [NicolaiSchmid/steno]=macos-15
   [NicolaiSchmid/ilovegrain]=macos-26
 )
 
