@@ -99,16 +99,15 @@ forge-macos-nunc-immo
 forge-macos-wasc-io
 forge-macos-mosaic            (repository renamed to vamoo)
 forge-macos-nicolaischmid-de
-forge-macos-steno
-forge-macos-steno-2
-forge-macos-steno-3
-forge-macos-steno-4
 forge-macos-ilovegrain
 forge-macos-ilovegrain-2
 forge-macos-zero-mobile
 ```
 
-steno has four macOS runners because its Swift CI runs two macOS jobs per
+steno's runners (1 Linux + 4 macOS) were removed on 2026-10-27: steno is
+public (hosted macOS is free) and forge now hosts the prometheus hub, whose
+credentials any job on forge could read. Fork PRs on steno need approval for
+all external contributors. History: steno had four macOS runners because its Swift CI runs two macOS jobs per
 push and its agents open many pull requests at once; on 2026-09-28 ten runs
 were queued behind two runners. Additional runners for a scope are plain
 copies of an existing runner directory (`rsync -a --exclude _work --exclude

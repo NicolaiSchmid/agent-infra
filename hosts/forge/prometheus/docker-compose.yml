@@ -1,0 +1,45 @@
+# prometheus: CLIProxyAPI hub for Claude Code + Codex subscriptions.
+# Runs inside the forge-linux Lima VM (residential egress, survives forge
+# booting to the login window). Reachable only on the tailnet at
+# https://prometheus.takaya-buri.ts.net — no ports are published on the VM.
+# Runtime data lives in /opt/prometheus (bind mounts, so CI `docker volume
+# prune` in the same VM can't wipe the logins). See README.md.
+name: prometheus
+
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.104.2
+    restart: unless-stopped
+    hostname: prometheus
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/serve.json
+      - TS_USERSPACE=false
+      - TS_HOSTNAME=prometheus
+      # prefs may come from a manual `tailscale up` (first login); don't fail on drift
+      - TS_EXTRA_ARGS=--reset
+    volumes:
+      - /opt/prometheus/ts-state:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
+
+  cli-proxy-api:
+    build: .
+    image: prometheus-cli-proxy-api:local
+    restart: unless-stopped
+    network_mode: service:tailscale
+    environment:
+      - TZ=Europe/Berlin
+    volumes:
+      # writable: the proxy hashes the management key and persists panel edits
+      - /opt/prometheus/config.yaml:/CLIProxyAPI/config.yaml
+      - /opt/prometheus/auths:/root/.cli-proxy-api
+      - /opt/prometheus/logs:/CLIProxyAPI/logs
+      - /opt/prometheus/usage:/CLIProxyAPI/usage
+    depends_on:
+      - tailscale
