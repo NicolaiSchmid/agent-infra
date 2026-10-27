@@ -43,12 +43,12 @@ Panel: `https://prometheus.takaya-buri.ts.net/management.html` (management key).
 
 ```bash
 # Codex — device code, open the printed URL anywhere
-docker exec -it prometheus-cli-proxy-api-1 ./cli-proxy-api -codex-device-login
+docker exec -it prometheus-cli-proxy-api-1 ./CLIProxyAPI -codex-device-login
 
 # Claude — open the printed URL in your browser; the final redirect to
 # http://localhost:54545/callback?... fails there. Copy that URL and replay it
 # inside the container's network namespace:
-docker exec -it prometheus-cli-proxy-api-1 ./cli-proxy-api -claude-login -no-browser
+docker exec -it prometheus-cli-proxy-api-1 ./CLIProxyAPI -claude-login -no-browser
 docker exec prometheus-cli-proxy-api-1 wget -qO- 'http://localhost:54545/callback?code=...&state=...'
 ```
 

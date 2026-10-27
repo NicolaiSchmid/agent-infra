@@ -29,6 +29,8 @@ services:
     image: eceasy/cli-proxy-api:v8.0.45
     restart: unless-stopped
     network_mode: service:tailscale
+    environment:
+      - TZ=Europe/Berlin
     volumes:
       # writable: the proxy hashes the management key and persists panel edits
       - /opt/prometheus/config.yaml:/CLIProxyAPI/config.yaml
