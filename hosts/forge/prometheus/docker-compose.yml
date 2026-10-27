@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
     hostname: prometheus
     environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_STATE_DIR=/var/lib/tailscale
       - TS_SERVE_CONFIG=/config/serve.json
       - TS_USERSPACE=false
