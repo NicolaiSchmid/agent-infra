@@ -185,6 +185,11 @@ A failed chunk: delete it
 (`DELETE FROM prometheus.requests WHERE machine='atlas' AND request_headers['x-backfill-chunk']='k/16'`)
 and start the unit again; finished chunks are skipped.
 
+Done 2026-10-29: Mac 92,151 calls, atlas 767,552 (16 chunks, 0 failed or
+dropped, `-until 2026-10-29T08:53:00Z`), 838k of them joined to 2,538 T3
+threads; ~5 GiB on disk for ~590 GiB of rebuilt requests. 41 old-transcript
+rows have no usable timestamp (`ts` before 2025); fixed for future runs.
+
 Re-running inserts again; clear a machine first:
 `DELETE FROM prometheus.requests WHERE machine = '<name>' AND source LIKE 'backfill%'`.
 For machines whose traffic already goes through the hub (atlas), pass

@@ -488,6 +488,11 @@ func (cf *claudeFile) fromChain(g *agroup, sid, parent string, st *stats) call {
 	if len(chain) > 0 {
 		c.ts = parseTS(chain[0].Timestamp)
 	}
+	if c.ts.IsZero() {
+		// No earlier line (first call of a file, or a broken chain): use the
+		// response's own time.
+		c.ts = parseTS(g.lines[0].Timestamp)
+	}
 	cf.fillResponse(&c, g)
 	if c.model != "" {
 		c.params, _ = json.Marshal(map[string]any{"model": c.model})
