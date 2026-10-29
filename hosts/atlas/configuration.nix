@@ -24,6 +24,7 @@ in {
     ./build-sweep.nix
     ./agent-checks.nix
     ./docker-prune.nix
+    ./docker.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
@@ -287,6 +288,7 @@ in {
 
   systemd.services.hermes.serviceConfig.ExecStart = lib.mkForce ''
     ${pkgs.docker}/bin/docker run --rm --name hermes \
+      --cgroup-parent system-hermes.slice \
       --network host \
       --mount type=bind,source=/srv/agents-state/hermes/data,target=/opt/data \
       --mount type=bind,source=/srv/agents-state/secrets/hermes_ssh,target=/secrets/hermes_ssh,readonly \

@@ -153,5 +153,6 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Bootstrap](runbooks/bootstrap.md)
 - [Forge operations](runbooks/forge.md)
 - [Atlas I/O priorities and build sweep](runbooks/atlas-build-sweep.md)
+- [Atlas Docker storage and migration](runbooks/atlas-docker.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)
