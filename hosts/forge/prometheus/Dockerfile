@@ -29,6 +29,20 @@ RUN set -eu; mkdir -p /static; \
     curl -fsSLo /static/management.html "https://github.com/Fwindy/Cli-Proxy-API-Management-Center/releases/download/${PANEL_RELEASE}/management.html"; \
     echo "$PANEL_SHA256  /static/management.html" | sha256sum -c -
 
+# recorder (./recorder, ours): every request/response + usage -> ClickHouse.
+# Built on bookworm like the upstream image so glibc matches.
+FROM golang:1.26.10-bookworm AS recorder
+ARG TARGETARCH
+WORKDIR /src
+COPY recorder/go.mod recorder/go.sum ./
+RUN go mod download
+COPY recorder/ ./
+RUN go test ./... && \
+    mkdir -p "/plugins/linux/$TARGETARCH" && \
+    CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o "/plugins/linux/$TARGETARCH/recorder.so" . && \
+    rm -f "/plugins/linux/$TARGETARCH/recorder.h"
+
 FROM eceasy/cli-proxy-api:${CLI_PROXY_VERSION}
 COPY --from=plugins /plugins /CLIProxyAPI/plugins
+COPY --from=recorder /plugins /CLIProxyAPI/plugins
 COPY --from=plugins /static/management.html /CLIProxyAPI/static/management.html

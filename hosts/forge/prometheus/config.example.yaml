@@ -49,3 +49,11 @@ plugins:
       priority: 100
       data_dir: "/CLIProxyAPI/usage"
       retention_days: 0
+    # ./recorder: full requests/responses + usage -> ClickHouse (clickhouse service)
+    recorder:
+      enabled: true
+      priority: 50
+      clickhouse-url: "http://127.0.0.1:8123"
+      clickhouse-user: "prometheus"
+      clickhouse-password: "<CLICKHOUSE_PASSWORD from .env>"
+      database: "prometheus"

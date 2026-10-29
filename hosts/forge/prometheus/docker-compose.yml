@@ -43,3 +43,24 @@ services:
       - /opt/prometheus/usage:/CLIProxyAPI/usage
     depends_on:
       - tailscale
+      - clickhouse
+
+  # Full-resolution request log written by the recorder plugin (recorder/).
+  # Loopback-only inside the shared netns; tailnet access is
+  # https://prometheus.takaya-buri.ts.net:8443 via serve.json.
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.36.3
+    restart: unless-stopped
+    network_mode: service:tailscale
+    environment:
+      - CLICKHOUSE_USER=prometheus
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    volumes:
+      - /opt/prometheus/clickhouse:/var/lib/clickhouse
+      - ./clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
+      - ./clickhouse/initdb:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    depends_on:
+      - tailscale

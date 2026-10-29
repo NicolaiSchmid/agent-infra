@@ -24,6 +24,8 @@ the tailnet: `https://prometheus.takaya-buri.ts.net`. Pattern from
 | `/opt/prometheus/ts-state/` | Tailscale node state |
 | `/opt/prometheus/logs/` | proxy logs |
 | `/opt/prometheus/usage/` | usage-statistics plugin SQLite (`usage.db`) |
+| `/opt/prometheus/clickhouse/` | ClickHouse data (recorder plugin) |
+| `/opt/prometheus/keys.env` | access, management and ClickHouse keys |
 
 ## Install
 
@@ -31,9 +33,9 @@ the tailnet: `https://prometheus.takaya-buri.ts.net`. Pattern from
 ssh nschmid10049@forge
 limactl shell forge-linux
 sudo apt-get install -y docker-compose-plugin   # once
-sudo install -d -o "$USER" /opt/prometheus /opt/prometheus/{auths,ts-state,logs}
-# copy config.example.yaml → /opt/prometheus/config.yaml, fill both keys (chmod 600)
-# put TS_AUTHKEY in ~/prometheus/.env (chmod 600)
+sudo install -d -o "$USER" /opt/prometheus /opt/prometheus/{auths,ts-state,logs,clickhouse}
+# copy config.example.yaml → /opt/prometheus/config.yaml, fill the keys (chmod 600)
+# put TS_AUTHKEY (optional) and CLICKHOUSE_PASSWORD in ~/prometheus/.env (chmod 600)
 cd ~/prometheus && docker compose up -d
 ```
 
@@ -56,7 +58,75 @@ in-process and see every credential, so review the source before bumping):
   because the fork auto-publishes upstream merges every 6 h. Reviewed 2026-10-27:
   same-origin API only, extra fetch only to models.dev on "sync prices".
 
+- **recorder** (`recorder/`, ours) — writes every request, its full request
+  and response bodies, and its usage record to ClickHouse. See below.
+
 After changing the Dockerfile: `docker compose build && docker compose up -d cli-proxy-api`.
+
+## Request log (recorder + ClickHouse)
+
+The `recorder` plugin hooks the proxy's request/response/stream/usage
+callbacks and writes one row per model execution to `prometheus.requests`:
+tokens (input, cache read/write, reasoning, output), account, model, session,
+harness, client tailnet IP, latency/TTFT, status, sanitized headers
+(rate-limit headers included, credentials dropped), the full response (SSE as
+sent to the client) and the request.
+
+Requests are deduplicated. Claude Code resends the whole conversation, system
+prompt and tool definitions on every turn, so each `messages`/`input` item and
+the whole `system`/`instructions`/`tools` values go to `prometheus.blobs` once,
+keyed by the sha256 of their canonical JSON. The request row keeps a skeleton
+with `{"$blob": hash}` placeholders plus `blob_refs` in order. `cache_control`
+breakpoints move to the newest message every turn, so they are lifted out
+before hashing and kept in `cache_control` (JSON-pointer patches);
+`recorder/internal/dedup.Join` rebuilds the exact request (key order aside).
+Spike numbers (short sessions): 3–9× from dedup, ~11× on disk with ZSTD;
+the ratio grows with session length.
+
+ClickHouse binds to loopback in the shared netns; the tailnet reaches it at
+`https://prometheus.takaya-buri.ts.net:8443` (HTTP interface, user
+`prometheus`, password `CLICKHOUSE_PASSWORD` in `/opt/prometheus/keys.env`).
+
+```bash
+curl -s https://prometheus.takaya-buri.ts.net:8443/ -H "X-ClickHouse-User: prometheus" \
+  -H "X-ClickHouse-Key: $PW" --data-binary @- <<'SQL'
+-- cache hit ratio per harness/model
+SELECT harness, model, count() req,
+       round(sum(cache_read_tokens) / sum(input_tokens + cache_read_tokens + cache_creation_tokens), 3) cache_hit
+FROM prometheus.requests GROUP BY 1, 2;
+SQL
+```
+
+```sql
+-- tool calls (Claude tool_use blocks)
+SELECT JSONExtractString(c, 'name') tool, count() calls
+FROM (SELECT arrayJoin(JSONExtractArrayRaw(content, 'content')) c
+      FROM prometheus.blobs FINAL WHERE role = 'assistant')
+WHERE JSONExtractString(c, 'type') = 'tool_use' GROUP BY tool ORDER BY calls DESC;
+
+-- messages of one request, in order
+SELECT b.role, b.type, b.content
+FROM (SELECT arrayJoin(arrayEnumerate(blob_refs)) i, blob_refs[i] hash
+      FROM prometheus.requests WHERE request_id = '<id>') r
+JOIN prometheus.blobs b USING hash ORDER BY i;
+```
+
+Notes:
+
+- Bodies contain whatever the agents saw: file contents, pasted secrets. The
+  database is as sensitive as `auths/`.
+- Codex over websocket sends only the new input items per turn and chains
+  turns with `previous_response_id` (in the skeleton); follow that chain to
+  get the whole conversation.
+- Usage records carry their own RequestID; they are paired with hook data by
+  TraceID, oldest first (a Codex websocket carries several turns per trace).
+- Hooks run synchronously but only copy bytes; inserts are batched (2 s / 200
+  rows) on a background queue (2048). ClickHouse down → retries, then drops
+  with a log line; nothing blocks proxied requests.
+- The dedup cache is in memory: after a proxy restart, each live session's
+  first request writes its history again (collapsed by ReplacingMergeTree).
+- Schema: `clickhouse/initdb/001_schema.sql`, applied on first start only.
+  New columns need an `ALTER TABLE` on the live database.
 
 ## Sign in accounts
 
