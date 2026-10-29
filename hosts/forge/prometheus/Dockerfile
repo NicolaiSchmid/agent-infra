@@ -19,6 +19,19 @@ RUN set -eu; \
     mkdir -p "/plugins/linux/$TARGETARCH"; \
     unzip -j "/tmp/$zip" usage-statistics.so -d "/plugins/linux/$TARGETARCH"
 
+# Reviewed v0.1.13: targeted, idempotent redemption of expiring Codex resets.
+# Keep the archive pinned; this library has access to account credentials.
+ARG CODEX_AUTO_RESET_VERSION=0.1.13
+ARG CODEX_AUTO_RESET_SHA256_arm64=99fab8a971b6a5dbe59bbccc998bb834ff67812a64847f332ff277563c8dab70
+ARG CODEX_AUTO_RESET_SHA256_amd64=63c10e5b820484e07b070442d93b9dd726e07c4afa688494313154043951adf1
+RUN set -eu; \
+    case "$TARGETARCH" in arm64) sha="$CODEX_AUTO_RESET_SHA256_arm64" ;; amd64) sha="$CODEX_AUTO_RESET_SHA256_amd64" ;; *) exit 1 ;; esac; \
+    zip="codex-auto-reset_${CODEX_AUTO_RESET_VERSION}_linux_${TARGETARCH}.zip"; \
+    curl -fsSLo "/tmp/$zip" "https://github.com/JefferyZhang2019/cpa-plugin-codex-auto-reset/releases/download/v${CODEX_AUTO_RESET_VERSION}/$zip"; \
+    echo "$sha  /tmp/$zip" | sha256sum -c -; \
+    mkdir -p "/plugins/linux/$TARGETARCH"; \
+    unzip -j "/tmp/$zip" codex-auto-reset.so -d "/plugins/linux/$TARGETARCH"
+
 # Fwindy/Cli-Proxy-API-Management-Center: upstream panel + usage/cost pages for
 # the usage-statistics plugin. Reviewed release pinned here; auto-update is off
 # in config.yaml because the fork auto-publishes upstream merges every 6 h.

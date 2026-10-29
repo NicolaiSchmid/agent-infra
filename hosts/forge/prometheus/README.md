@@ -60,6 +60,14 @@ After changing the Dockerfile: `docker compose build && docker compose up -d cli
 
 ## Sign in accounts
 
+The image also includes [Codex Auto Reset](https://github.com/JefferyZhang2019/cpa-plugin-codex-auto-reset)
+v0.1.13, pinned by checksum. Select Codex accounts in its plugin settings;
+the example configuration starts with no accounts selected. It checks every
+minute and schedules redemption three minutes before the earliest credit
+expires. State lives under the persistent auth volume. After first setup,
+edit settings in the plugin panel/API: its saved settings override YAML.
+See [the source review and limitations](codex-auto-reset-review.md).
+
 ```bash
 # Codex — device code, open the printed URL anywhere
 docker exec -it prometheus-cli-proxy-api-1 ./CLIProxyAPI -codex-device-login
