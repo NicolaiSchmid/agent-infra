@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS prometheus.requests
     truncated              Bool,
     has_usage              Bool,
     has_completion         Bool,
+    -- live | backfill:claude-request-log | backfill:claude-transcript | backfill:codex-rollout
+    source                 LowCardinality(String) DEFAULT 'live',
+    machine                LowCardinality(String),
 
     INDEX idx_session session_id TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_request request_id TYPE bloom_filter(0.01) GRANULARITY 4
@@ -87,3 +90,25 @@ ORDER BY (toDate(ts), harness, session_id, ts)
 -- the recorder sends a fixed insert_deduplication_token per batch, so a
 -- retry or spool replay of an insert that already landed stores nothing
 SETTINGS non_replicated_deduplication_window = 10000;
+
+-- T3 Code threads (from each machine's statev2.sqlite / state.sqlite, by the
+-- backfill command), one row per (thread, native provider session). Join:
+--   requests.session_id = t3_threads.native_session_id
+--   (or requests.parent_session_id, for subagents)
+CREATE TABLE IF NOT EXISTS prometheus.t3_threads
+(
+    machine           LowCardinality(String),
+    thread_id         String,
+    title             String,
+    project_id        String,
+    project_title     LowCardinality(String),
+    workspace_root    String,
+    provider          LowCardinality(String),
+    native_session_id String,
+    created_at        DateTime64(3, 'UTC'),
+    updated_at        DateTime64(3, 'UTC'),
+    archived          Bool,
+    deleted           Bool
+)
+ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (machine, thread_id, native_session_id);

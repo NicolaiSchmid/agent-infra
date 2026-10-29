@@ -6,8 +6,9 @@
 // definitions on every request; Codex over HTTP does the same with `input`.
 // Each element of `messages`/`input` and the whole `system`, `instructions`
 // and `tools` values become blobs keyed by the hash of their canonical JSON.
-// The skeleton keeps everything else, with each blob replaced by
-// {"$blob":"<hash>"}.
+// The skeleton keeps everything else: whole values become {"$blob":"<hash>"}
+// and a list becomes {"$refs":[start,end]}, a range of Refs, so the
+// ever-growing message list is stored once (in Refs) rather than twice.
 //
 // Prompt-cache breakpoints (`cache_control`) move to the newest message on
 // every turn, which would give the same message a different hash each time.
@@ -101,13 +102,13 @@ func SplitRequest(body []byte) (Split, error) {
 		if !ok {
 			continue
 		}
-		for i, item := range list {
-			ref, err := add("message", item)
-			if err != nil {
+		start := len(s.Refs)
+		for _, item := range list {
+			if _, err := add("message", item); err != nil {
 				return Split{Skeleton: body}, err
 			}
-			list[i] = ref
 		}
+		root[key] = RefRange(start, len(s.Refs))
 	}
 	if s.Skeleton, err = encode(root); err != nil {
 		return Split{Skeleton: body}, err
@@ -115,13 +116,17 @@ func SplitRequest(body []byte) (Split, error) {
 	return s, nil
 }
 
-// Join rebuilds a request from its skeleton, blobs (by hash) and patches.
-func Join(skeleton []byte, blobs map[string][]byte, patches []Patch) ([]byte, error) {
+// RefRange is the skeleton placeholder for refs[start:end].
+func RefRange(start, end int) map[string][]int { return map[string][]int{"$refs": {start, end}} }
+
+// Join rebuilds a request from its skeleton, refs, blobs (by hash) and
+// patches.
+func Join(skeleton []byte, refs []string, blobs map[string][]byte, patches []Patch) ([]byte, error) {
 	doc, err := decode(skeleton)
 	if err != nil {
 		return nil, err
 	}
-	doc, err = resolve(doc, blobs)
+	doc, err = resolve(doc, refs, blobs)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +148,7 @@ func Join(skeleton []byte, blobs map[string][]byte, patches []Patch) ([]byte, er
 	return encode(doc)
 }
 
-func resolve(v any, blobs map[string][]byte) (any, error) {
+func resolve(v any, refs []string, blobs map[string][]byte) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		if hash, ok := t["$blob"].(string); ok && len(t) == 1 {
@@ -153,8 +158,28 @@ func resolve(v any, blobs map[string][]byte) (any, error) {
 			}
 			return decode(raw)
 		}
+		if r, ok := t["$refs"].([]any); ok && len(t) == 1 && len(r) == 2 {
+			start, err1 := r[0].(json.Number).Int64()
+			end, err2 := r[1].(json.Number).Int64()
+			if err1 != nil || err2 != nil || start < 0 || end > int64(len(refs)) || start > end {
+				return nil, fmt.Errorf("bad $refs %v", r)
+			}
+			list := make([]any, 0, end-start)
+			for _, h := range refs[start:end] {
+				raw, ok := blobs[h]
+				if !ok {
+					return nil, fmt.Errorf("missing blob %s", h)
+				}
+				item, err := decode(raw)
+				if err != nil {
+					return nil, err
+				}
+				list = append(list, item)
+			}
+			return list, nil
+		}
 		for k, child := range t {
-			r, err := resolve(child, blobs)
+			r, err := resolve(child, refs, blobs)
 			if err != nil {
 				return nil, err
 			}
@@ -162,7 +187,7 @@ func resolve(v any, blobs map[string][]byte) (any, error) {
 		}
 	case []any:
 		for i, child := range t {
-			r, err := resolve(child, blobs)
+			r, err := resolve(child, refs, blobs)
 			if err != nil {
 				return nil, err
 			}
@@ -239,3 +264,30 @@ func encode(v any) ([]byte, error) {
 	}
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
+
+// Item hashes one value the way SplitRequest hashes each piece of a request:
+// cache_control lifted out (patches are relative to the item), canonical
+// JSON, sha256. Callers that already know a request's pieces (the backfill)
+// build skeletons from these without re-splitting whole requests.
+func Item(kind string, raw []byte) (Blob, []Patch, error) {
+	v, err := decode(raw)
+	if err != nil {
+		return Blob{}, nil, err
+	}
+	var patches []Patch
+	liftCacheControl(v, "", &patches)
+	content, err := encode(v)
+	if err != nil {
+		return Blob{}, nil, err
+	}
+	sum := sha256.Sum256(content)
+	b := Blob{Hash: hex.EncodeToString(sum[:16]), Kind: kind, Content: content}
+	if m, ok := v.(map[string]any); ok {
+		b.Role, _ = m["role"].(string)
+		b.Type, _ = m["type"].(string)
+	}
+	return b, patches, nil
+}
+
+// Canonical is the encoding blobs are hashed over.
+func Canonical(v any) ([]byte, error) { return encode(v) }

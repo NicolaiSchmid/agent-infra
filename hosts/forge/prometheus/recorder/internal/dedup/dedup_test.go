@@ -57,7 +57,7 @@ func TestJoinRoundTrips(t *testing.T) {
 		for _, b := range s.Blobs {
 			blobs[b.Hash] = b.Content
 		}
-		out, err := Join(s.Skeleton, blobs, s.Patches)
+		out, err := Join(s.Skeleton, s.Refs, blobs, s.Patches)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,4 +86,22 @@ func jsonEqual(t *testing.T, a, b []byte) bool {
 	ex, _ := json.Marshal(x)
 	ey, _ := json.Marshal(y)
 	return bytes.Equal(ex, ey)
+}
+
+func TestItemMatchesSplit(t *testing.T) {
+	s, err := SplitRequest([]byte(turn2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := `{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"a.txt","cache_control":{"type":"ephemeral"}}]}`
+	b, patches, err := Item("message", []byte(msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Hash != s.Refs[len(s.Refs)-1] {
+		t.Fatalf("Item hash %s != split hash %s", b.Hash, s.Refs[len(s.Refs)-1])
+	}
+	if len(patches) != 1 || patches[0].Path != "/content/0" {
+		t.Fatalf("patches %+v", patches)
+	}
 }

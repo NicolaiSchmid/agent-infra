@@ -19,6 +19,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
+	"github.com/NicolaiSchmid/agent-infra/hosts/forge/prometheus/recorder/internal/rows"
 	"github.com/NicolaiSchmid/agent-infra/hosts/forge/prometheus/recorder/internal/sink"
 )
 
@@ -107,7 +108,7 @@ func BenchmarkRecord(b *testing.B) {
 		var fresh []any
 		for _, bl := range blobs {
 			if !p.seen.has(bl.Hash) {
-				fresh = append(fresh, blobRow{Hash: bl.Hash, Content: string(bl.Content)})
+				fresh = append(fresh, rows.Blob{Hash: bl.Hash, Content: string(bl.Content)})
 			}
 		}
 		if _, err := json.Marshal(row); err != nil {

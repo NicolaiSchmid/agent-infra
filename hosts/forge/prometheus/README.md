@@ -77,7 +77,9 @@ Requests are deduplicated. Claude Code resends the whole conversation, system
 prompt and tool definitions on every turn, so each `messages`/`input` item and
 the whole `system`/`instructions`/`tools` values go to `prometheus.blobs` once,
 keyed by the sha256 of their canonical JSON. The request row keeps a skeleton
-with `{"$blob": hash}` placeholders plus `blob_refs` in order. `cache_control`
+with `{"$blob": hash}` for whole values and `{"$refs": [start, end]}` (a
+range of `blob_refs`) for the message list, so the growing history is stored
+once per row rather than twice. `cache_control`
 breakpoints move to the newest message every turn, so they are lifted out
 before hashing and kept in `cache_control` (JSON-pointer patches);
 `recorder/internal/dedup.Join` rebuilds the exact request (key order aside).
@@ -145,6 +147,53 @@ Notes:
   first request writes its history again (collapsed by ReplacingMergeTree).
 - Schema: `clickhouse/initdb/001_schema.sql`, applied on first start only.
   New columns need an `ALTER TABLE` on the live database.
+
+## Backfill (history from before the recorder)
+
+`recorder/cmd/backfill` rebuilds past API calls from each machine's local
+transcripts and writes them into the same tables, with `source` set to the
+kind of reconstruction and `machine` set:
+
+| `source` | From | Fidelity |
+|---|---|---|
+| `backfill:claude-request-log` | Claude Code ≥ 2.1.281 `api-request` records (params, system + tools shape, base/keep/tail message hashes, cache_control paths) | exact: `request_headers['x-backfill-digest'] = 'match'` when the rebuild reproduces Claude Code's own `requestDigest` (~85% on the Mac; the rest have every message hash-verified but differ somewhere in the envelope) |
+| `backfill:claude-transcript` | older Claude Code: parentUuid chain of user/assistant lines | messages only, no system prompt or tools |
+| `backfill:codex-rollout` | Codex rollouts: each `token_count` closes a model call; earlier items are its input | full input + instructions, no tool definitions |
+
+Usage (tokens, cache read/write) comes from the transcripts; latency is
+approximate (line timestamps). T3 Code threads (title, project, native
+session ids) go to `prometheus.t3_threads`; join on
+`requests.session_id = t3_threads.native_session_id`. Default scope is T3
+sessions only (mapped through the T3 databases, or T3 worktree cwd /
+`t3code` originator); `-scope all` takes everything.
+
+```bash
+cd recorder && go build -o backfill ./cmd/backfill   # GOOS=linux GOARCH=amd64 for atlas
+CLICKHOUSE_PASSWORD=... ./backfill -machine <name> -client-ip <tailnet ip> \
+  -claude-dir ~/.claude/projects -codex-dir ~/.codex/sessions -t3-dir ~/.t3/userdata \
+  [-until <when live recording started for this machine>] [-dry-run]
+```
+
+Re-running inserts again; clear a machine first:
+`DELETE FROM prometheus.requests WHERE machine = '<name>' AND source LIKE 'backfill%'`.
+For machines whose traffic already goes through the hub (atlas), pass
+`-until` with the time the recorder went live there, so calls aren't counted
+twice.
+
+Token conventions follow the provider: Claude's `input_tokens` is uncached
+input (prompt = input + cache_read + cache_creation); Codex's `input_tokens`
+already includes `cache_read_tokens` (prompt = input). Live rows are the same.
+
+```sql
+-- prompt tokens and cache hit per T3 thread
+SELECT t.machine, t.title, count() calls,
+       sum(if(r.provider = 'codex', r.input_tokens, r.input_tokens + r.cache_read_tokens + r.cache_creation_tokens)) prompt_tokens,
+       round(sum(r.cache_read_tokens) / prompt_tokens, 2) cache_hit, sum(r.output_tokens) output_tokens
+FROM prometheus.requests r
+JOIN (SELECT * FROM prometheus.t3_threads FINAL WHERE native_session_id != '') t
+  ON if(r.parent_session_id != '', r.parent_session_id, r.session_id) = t.native_session_id
+GROUP BY 1, 2 ORDER BY prompt_tokens DESC LIMIT 20;
+```
 
 ## Sign in accounts
 

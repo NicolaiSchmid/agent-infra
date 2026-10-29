@@ -8,6 +8,7 @@ package sink
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,9 @@ type Config struct {
 	SpoolDir string
 	// SpoolMaxBytes caps the spool; batches beyond it are dropped.
 	SpoolMaxBytes int64
+	// Gzip compresses insert bodies, for ClickHouse over a slow link.
+	// Message ref lists repeat row to row, so they shrink a lot.
+	Gzip bool
 }
 
 type Logger func(level, message string, fields map[string]any)
@@ -106,6 +110,23 @@ func (s *Sink) Enqueue(b Batch) {
 		}
 	}
 }
+
+// Insert writes rows to table synchronously, outside the batching queue.
+func (s *Sink) Insert(table string, rows []any, token string) error {
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	enc.SetEscapeHTML(false)
+	for _, r := range rows {
+		if err := enc.Encode(r); err != nil {
+			return err
+		}
+	}
+	return s.insert(table, body.Bytes(), token)
+}
+
+// EnqueueWait blocks until the batch is queued. For bulk loaders, which
+// should slow down rather than drop.
+func (s *Sink) EnqueueWait(b Batch) { s.queue <- b }
 
 // Stats: requests stored, failed inserts, requests dropped, requests spooled.
 func (s *Sink) Stats() (stored, failed, dropped, spooled int64) {
@@ -344,9 +365,19 @@ func (s *Sink) insert(table string, body []byte, token string) error {
 	if token != "" {
 		q.Set("insert_deduplication_token", token)
 	}
+	if s.cfg.Gzip {
+		var zb bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&zb, gzip.BestSpeed)
+		_, _ = zw.Write(body)
+		_ = zw.Close()
+		body = zb.Bytes()
+	}
 	req, err := http.NewRequest(http.MethodPost, s.cfg.URL+"/?"+q.Encode(), bytes.NewReader(body))
 	if err != nil {
 		return err
+	}
+	if s.cfg.Gzip {
+		req.Header.Set("Content-Encoding", "gzip")
 	}
 	req.Header.Set("X-ClickHouse-User", s.cfg.User)
 	req.Header.Set("X-ClickHouse-Key", s.cfg.Password)
