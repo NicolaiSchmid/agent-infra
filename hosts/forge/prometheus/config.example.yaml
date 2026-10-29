@@ -47,8 +47,8 @@ plugins:
     codex-auto-reset:
       enabled: true
       priority: 1
-      refresh_interval: "1m"
-      trigger_lead_time: "3m"
+      refresh_interval: "5m"
+      trigger_lead_time: "15m"
       # Select account auth_index values in the plugin panel after login.
       # Empty keeps redemption inactive until accounts are selected.
       enabled_accounts: []
