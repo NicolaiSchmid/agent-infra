@@ -174,6 +174,17 @@ CLICKHOUSE_PASSWORD=... ./backfill -machine <name> -client-ip <tailnet ip> \
   [-until <when live recording started for this machine>] [-dry-run]
 ```
 
+Large machines run in chunks: `-shards N -shard k` processes a fixed subset
+of files (by path hash) and tags rows `request_headers['x-backfill-chunk'] =
+'k/N'`; a chunk exits non-zero unless every call landed.
+`recorder/cmd/backfill/atlas-driver.sh` runs the 16 chunks on atlas from
+`/var/lib/prometheus-backfill` (binary, password file, `done/<k>` markers,
+`logs/`, `progress.log`) as a transient unit:
+`sudo systemd-run --unit=prometheus-backfill /bin/sh /var/lib/prometheus-backfill/driver.sh`.
+A failed chunk: delete it
+(`DELETE FROM prometheus.requests WHERE machine='atlas' AND request_headers['x-backfill-chunk']='k/16'`)
+and start the unit again; finished chunks are skipped.
+
 Re-running inserts again; clear a machine first:
 `DELETE FROM prometheus.requests WHERE machine = '<name>' AND source LIKE 'backfill%'`.
 For machines whose traffic already goes through the hub (atlas), pass

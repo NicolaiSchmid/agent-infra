@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"hash/maphash"
 	"io/fs"
 	"log"
@@ -185,6 +186,9 @@ func (b *builder) build(c call, machine, clientIP string) (rows.Request, []dedup
 	if c.cwd != "" {
 		row.RequestHeaders["x-backfill-cwd"] = c.cwd
 	}
+	if chunkLabel != "" {
+		row.RequestHeaders["x-backfill-chunk"] = chunkLabel
+	}
 	if c.digest != "" {
 		// match: the rebuilt request is byte-identical (canonically) to what
 		// Claude Code sent, per its own requestDigest.
@@ -222,12 +226,27 @@ func main() {
 	workers := flag.Int("workers", 4, "files parsed in parallel")
 	verify := flag.Bool("verify", true, "check rebuilt Claude requests against their logged requestDigest")
 	chURL := flag.String("clickhouse-url", "https://prometheus.takaya-buri.ts.net:8443", "ClickHouse HTTP URL")
-	chUser := flag.String("clickhouse-user", "prometheus", "ClickHouse user (password: $CLICKHOUSE_PASSWORD)")
+	chUser := flag.String("clickhouse-user", "prometheus", "ClickHouse user (password: $CLICKHOUSE_PASSWORD or -clickhouse-password-file)")
+	pwFile := flag.String("clickhouse-password-file", "", "file holding the ClickHouse password (keeps it out of argv/env)")
+	shard := flag.Int("shard", 0, "with -shards: process only this shard (0-based) of the files")
+	shards := flag.Int("shards", 1, "split the files into this many fixed shards (by path hash); rows carry request_headers['x-backfill-chunk'] = '<shard>/<shards>'")
 	flag.Parse()
 	if *machine == "" {
 		log.Fatal("-machine is required")
 	}
 	verifyDigests = *verify
+	if *shards < 1 || *shard < 0 || *shard >= *shards {
+		log.Fatal("need 0 <= -shard < -shards")
+	}
+	chunkLabel = fmt.Sprintf("%d/%d", *shard, *shards)
+	password := os.Getenv("CLICKHOUSE_PASSWORD")
+	if *pwFile != "" {
+		b, err := os.ReadFile(*pwFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		password = strings.TrimSpace(string(b))
+	}
 	var since, until time.Time
 	if *sinceS != "" {
 		since = parseTS(*sinceS)
@@ -266,11 +285,24 @@ func main() {
 	walk("claude", *claudeDir)
 	walk("codex", *codexDir)
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].path < jobs[j].path })
+	if *shards > 1 {
+		// A file's shard depends only on its path, so a shard can be deleted
+		// and rerun on its own.
+		var mine []job
+		for _, j := range jobs {
+			h := fnv.New32a()
+			h.Write([]byte(j.path))
+			if int(h.Sum32()%uint32(*shards)) == *shard {
+				mine = append(mine, j)
+			}
+		}
+		jobs = mine
+	}
 	st.add("files", int64(len(jobs)))
 
 	var sk *sink.Sink
 	if !*dryRun {
-		sk = sink.New(sink.Config{URL: strings.TrimRight(*chURL, "/"), User: *chUser, Password: os.Getenv("CLICKHOUSE_PASSWORD"),
+		sk = sink.New(sink.Config{URL: strings.TrimRight(*chURL, "/"), User: *chUser, Password: password,
 			Database: "prometheus", QueueSize: 1024, BatchSize: 200, FlushInterval: time.Second, Gzip: true},
 			func(level, msg string, f map[string]any) { log.Printf("%s %s %v", level, msg, f) })
 		if len(threads) > 0 {
@@ -417,7 +449,15 @@ func main() {
 		}
 	}
 	fmt.Printf("%-34s %10s\n", "elapsed", time.Since(start).Round(time.Second))
+	// A chunk only counts as done if every call landed.
+	if sk != nil && (st.m["stored"] != st.m["calls"] || st.m["dropped"] > 0 || st.m["files failed"] > 0) {
+		fmt.Println("INCOMPLETE: stored != calls (or drops / failed files); delete this chunk and rerun it")
+		os.Exit(2)
+	}
 }
+
+// chunkLabel tags rows with their shard, so one chunk can be deleted.
+var chunkLabel string
 
 // codexHead reads session_meta from the first line.
 func codexHead(path string) (originator, threadID string) {
