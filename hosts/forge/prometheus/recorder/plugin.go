@@ -748,6 +748,8 @@ func (p *plugin) reportStats() {
 			stored, failed, dropped, spooled := sk.Stats()
 			f["stored"], f["failed_inserts"], f["dropped"], f["spooled"] = stored, failed, dropped, spooled
 		}
-		p.log("info", "recorder: stats", f)
+		// The host's log formatter drops most fields, so the numbers go in the text.
+		p.log("info", fmt.Sprintf("recorder: stats requests=%d hook_ms_per_req=%.2f hook_max_ms=%.1f worker_ms_per_req=%.2f request_kb_per_req=%d stored=%v failed_inserts=%v dropped=%v spooled=%v",
+			reqs, f["hook_ms_per_req"], f["hook_max_ms"], f["worker_ms_per_req"], f["request_kb_per_req"], f["stored"], f["failed_inserts"], f["dropped"], f["spooled"]), f)
 	}
 }

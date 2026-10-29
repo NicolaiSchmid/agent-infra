@@ -135,8 +135,11 @@ Notes:
   with a byte search instead of the JSON scanner (`wire.go`). Benchmark on
   forge with a real 1.3 MB Claude request (p99 is 0.8 MB): hooks 6 ms
   (incl. the host's marshalling; decoding the body once is 6 ms),
-  background 16 ms. The plugin logs `recorder: stats` (hook/worker ms per
-  request) every 5 min. Re-run: `RECORDER_BENCH_DIR=<dir with body.json,
+  background 16 ms. Live on forge (2026-10-29, 57 requests, avg 404 KB):
+  15.8 ms of hook time per request summed over all its calls (longest single
+  call 8.4 ms, so at most that much added before the first byte), 10.8 ms
+  worker; the whole proxy used ~220 ms CPU per request and 2% of one core.
+  The plugin logs `recorder: stats` (hook/worker ms per request) every 5 min. Re-run: `RECORDER_BENCH_DIR=<dir with body.json,
   resp.sse> go test -run x -bench .` in `recorder/`.
 - The dedup cache is in memory: after a proxy restart, each live session's
   first request writes its history again (collapsed by ReplacingMergeTree).
