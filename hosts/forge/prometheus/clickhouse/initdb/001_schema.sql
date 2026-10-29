@@ -1,4 +1,4 @@
--- prometheus recorder schema. Applied by the clickhouse image on first start
+-- prometheus recorder schema. No TTL: everything is kept forever. Applied by the clickhouse image on first start
 -- (empty data dir); every statement is idempotent, so re-applying is safe:
 --   docker compose exec clickhouse clickhouse-client --multiquery < clickhouse/initdb/001_schema.sql
 
@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS prometheus.blobs
     first_seen DateTime64(3, 'UTC')
 )
 ENGINE = ReplacingMergeTree(first_seen)
-ORDER BY hash;
+ORDER BY hash
+SETTINGS non_replicated_deduplication_window = 10000;
 
 -- One row per model execution through the hub. The request is stored as a
 -- skeleton with {"$blob": hash} placeholders; blob_refs lists them in order.
@@ -82,4 +83,7 @@ CREATE TABLE IF NOT EXISTS prometheus.requests
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)
-ORDER BY (toDate(ts), harness, session_id, ts);
+ORDER BY (toDate(ts), harness, session_id, ts)
+-- the recorder sends a fixed insert_deduplication_token per batch, so a
+-- retry or spool replay of an insert that already landed stores nothing
+SETTINGS non_replicated_deduplication_window = 10000;

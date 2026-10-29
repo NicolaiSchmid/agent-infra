@@ -41,6 +41,8 @@ type rawConfig struct {
 	BatchSize    int    `yaml:"batch-size"`
 	FlushSeconds int    `yaml:"flush-seconds"`
 	MaxBodyMB    int    `yaml:"max-body-mb"`
+	SpoolDir     string `yaml:"spool-dir"`
+	SpoolMaxMB   int    `yaml:"spool-max-mb"`
 }
 
 type plugin struct {
@@ -55,12 +57,16 @@ type plugin struct {
 	inFlight map[string]*exchange
 
 	seen *seenSet
+	// done exchanges wait here for the worker, so hooks only copy bytes.
+	done    chan *exchange
+	dropped atomic.Int64
+	stats   stats
 
 	startSweeper sync.Once
 }
 
 func newPlugin(log func(string, string, map[string]any)) *plugin {
-	return &plugin{log: log, inFlight: map[string]*exchange{}, seen: newSeenSet(500_000)}
+	return &plugin{log: log, inFlight: map[string]*exchange{}, seen: newSeenSet(500_000), done: make(chan *exchange, 1024)}
 }
 
 type exchange struct {
@@ -84,7 +90,16 @@ type exchange struct {
 	completion   *pluginapi.RequestCompletion
 }
 
+// handle times every hook call; the work it does runs on the proxy's
+// request path.
 func (p *plugin) handle(method string, request []byte) (any, error) {
+	start := time.Now()
+	out, err := p.dispatch(method, request)
+	p.stats.hook(time.Since(start))
+	return out, err
+}
+
+func (p *plugin) dispatch(method string, request []byte) (any, error) {
 	switch method {
 	case "plugin.register", "plugin.reconfigure":
 		var req struct {
@@ -97,64 +112,38 @@ func (p *plugin) handle(method string, request []byte) (any, error) {
 		p.configure(req.ConfigYAML)
 		return registration(req.SchemaVersion), nil
 
-	case "request.intercept_before":
-		var ev pluginapi.RequestInterceptRequest
-		if err := json.Unmarshal(request, &ev); err != nil {
-			return nil, err
-		}
-		p.update(ev.RequestID, func(x *exchange) {
-			x.traceID = ev.TraceID
-			x.sourceFormat, x.model, x.requested, x.stream = ev.SourceFormat, ev.Model, ev.RequestedModel, ev.Stream
-			x.reqHeaders = ev.Headers
-			if strings.EqualFold(ev.Headers.Get("Upgrade"), "websocket") {
-				x.transport = "websocket"
-			}
-			if len(x.request) == 0 {
-				x.request = ev.Body
-			}
-		})
-		return struct{}{}, nil
-
-	case "request.intercept_after":
-		return struct{}{}, nil
-
 	case "response.intercept_after":
-		var ev pluginapi.ResponseInterceptRequest
-		if err := json.Unmarshal(request, &ev); err != nil {
+		var ev wireResponse
+		cut, err := decodeLarge(request, &ev, []string{"OriginalRequest", "Body"}, []string{"RequestBody"})
+		if err != nil {
 			return nil, err
 		}
+		ev.OriginalRequest, ev.Body = cut[0], cut[1]
 		p.update(ev.RequestID, func(x *exchange) {
 			x.sourceFormat, x.model, x.stream, x.status = ev.SourceFormat, ev.Model, ev.Stream, ev.StatusCode
 			x.respHeaders = ev.ResponseHeaders
-			if x.reqHeaders == nil {
-				x.reqHeaders = ev.RequestHeaders
-			}
-			if len(x.request) == 0 {
-				x.request = ev.OriginalRequest
-			}
+			x.setRequest(ev.RequestHeaders, ev.OriginalRequest)
 			x.response.Reset()
 			p.appendCapped(x, &x.response, ev.Body)
 		})
 		return struct{}{}, nil
 
 	case "response.intercept_stream_chunk":
-		var ev pluginapi.StreamChunkInterceptRequest
-		if err := json.Unmarshal(request, &ev); err != nil {
+		var ev wireStreamChunk
+		cut, err := decodeLarge(request, &ev, []string{"OriginalRequest", "Body"}, []string{"RequestBody"})
+		if err != nil {
 			return nil, err
 		}
+		ev.OriginalRequest, ev.Body = cut[0], cut[1]
 		p.update(ev.RequestID, func(x *exchange) {
 			x.stream = true
 			if ev.ChunkIndex == pluginapi.StreamChunkHeaderInitIndex {
 				// A bootstrap retry repeats header-init; drop the failed attempt.
 				x.response.Reset()
 				x.overflow = false
+				x.sourceFormat, x.model, x.requested = ev.SourceFormat, ev.Model, ev.RequestedModel
 				x.respHeaders = ev.ResponseHeaders
-				if x.reqHeaders == nil {
-					x.reqHeaders = ev.RequestHeaders
-				}
-				if len(x.request) == 0 {
-					x.request = ev.OriginalRequest
-				}
+				x.setRequest(ev.RequestHeaders, ev.OriginalRequest)
 				return
 			}
 			p.appendCapped(x, &x.response, ev.Body)
@@ -162,7 +151,7 @@ func (p *plugin) handle(method string, request []byte) (any, error) {
 		return struct{}{}, nil
 
 	case "websocket.response_event":
-		var ev pluginapi.WebSocketResponseEvent
+		var ev wireWebSocketEvent
 		if err := json.Unmarshal(request, &ev); err != nil {
 			return nil, err
 		}
@@ -204,6 +193,18 @@ func (p *plugin) handle(method string, request []byte) (any, error) {
 	return nil, fmt.Errorf("unknown method %s", method)
 }
 
+func (x *exchange) setRequest(h http.Header, body []byte) {
+	if x.reqHeaders == nil {
+		x.reqHeaders = h
+		if strings.EqualFold(h.Get("Upgrade"), "websocket") {
+			x.transport = "websocket"
+		}
+	}
+	if len(x.request) == 0 {
+		x.request = body
+	}
+}
+
 func (p *plugin) appendCapped(x *exchange, buf *bytes.Buffer, b []byte) {
 	if x.overflow {
 		return
@@ -243,7 +244,7 @@ func (p *plugin) finish(id string, f func(*exchange)) {
 	ready := p.settle(x)
 	p.mu.Unlock()
 	if ready {
-		p.record(x)
+		p.enqueue(x)
 	}
 }
 
@@ -274,7 +275,7 @@ func (p *plugin) attachUsage(rec *pluginapi.UsageRecord) {
 	ready := p.settle(x)
 	p.mu.Unlock()
 	if ready {
-		p.record(x)
+		p.enqueue(x)
 	}
 }
 
@@ -303,8 +304,27 @@ func (p *plugin) sweep() {
 		}
 		p.mu.Unlock()
 		for _, x := range done {
-			p.record(x)
+			p.enqueue(x)
 		}
+	}
+}
+
+func (p *plugin) enqueue(x *exchange) {
+	select {
+	case p.done <- x:
+	default:
+		if p.dropped.Add(1)%100 == 1 {
+			p.log("warn", "recorder: worker behind, dropping requests", map[string]any{"dropped": p.dropped.Load()})
+		}
+	}
+}
+
+// work splits and encodes finished exchanges off the hook path.
+func (p *plugin) work() {
+	for x := range p.done {
+		start := time.Now()
+		p.record(x)
+		p.stats.worker(time.Since(start), len(x.request))
 	}
 }
 
@@ -550,6 +570,12 @@ func (p *plugin) configure(raw []byte) {
 	if cfg.MaxBodyMB <= 0 {
 		cfg.MaxBodyMB = 32
 	}
+	if cfg.SpoolDir == "" {
+		cfg.SpoolDir = "/CLIProxyAPI/recorder-spool"
+	}
+	if cfg.SpoolMaxMB <= 0 {
+		cfg.SpoolMaxMB = 10240
+	}
 	p.configMu.Lock()
 	defer p.configMu.Unlock()
 	if p.config != nil && reflect.DeepEqual(*p.config, cfg) {
@@ -560,12 +586,17 @@ func (p *plugin) configure(raw []byte) {
 	s := sink.New(sink.Config{
 		URL: strings.TrimRight(cfg.URL, "/"), User: cfg.User, Password: cfg.Password, Database: cfg.Database,
 		QueueSize: cfg.QueueSize, BatchSize: cfg.BatchSize, FlushInterval: time.Duration(cfg.FlushSeconds) * time.Second,
+		SpoolDir: cfg.SpoolDir, SpoolMaxBytes: int64(cfg.SpoolMaxMB) << 20,
 	}, p.log)
 	if old := p.sink.Swap(s); old != nil {
 		go closeSink(old)
 	}
 	p.log("info", "recorder: writing to ClickHouse", map[string]any{"url": cfg.URL, "database": cfg.Database})
-	p.startSweeper.Do(func() { go p.sweep() })
+	p.startSweeper.Do(func() {
+		go p.sweep()
+		go p.reportStats()
+		go p.work()
+	})
 }
 
 func (p *plugin) shutdown() {
@@ -574,8 +605,8 @@ func (p *plugin) shutdown() {
 	p.config = nil
 	if s := p.sink.Swap(nil); s != nil {
 		closeSink(s)
-		stored, failed, dropped := s.Stats()
-		p.log("info", "recorder: stopped", map[string]any{"stored": stored, "failed": failed, "dropped": dropped})
+		stored, failed, dropped, spooled := s.Stats()
+		p.log("info", "recorder: stopped", map[string]any{"stored": stored, "failed": failed, "dropped": dropped, "spooled": spooled})
 	}
 }
 
@@ -609,16 +640,16 @@ func registration(hostSchemaVersion int) map[string]any {
 				{"batch-size", "integer", "Requests per insert. Default: 200"},
 				{"flush-seconds", "integer", "Insert at least this often. Default: 2"},
 				{"max-body-mb", "integer", "Responses beyond this are truncated. Default: 32"},
+				{"spool-dir", "string", "Batches ClickHouse hasn't accepted wait here and replay in order. Default: /CLIProxyAPI/recorder-spool"},
+				{"spool-max-mb", "integer", "Spool size cap; beyond it requests are dropped. Default: 10240"},
 			},
 		},
 		"capabilities": map[string]bool{
-			"request_interceptor":                 true,
-			"request_interceptor_omit_body_after": true,
-			"request_lifecycle_plugin":            true,
-			"response_interceptor":                true,
-			"response_stream_interceptor":         true,
-			"websocket_response_observer":         true,
-			"usage_plugin":                        true,
+			"request_lifecycle_plugin":    true,
+			"response_interceptor":        true,
+			"response_stream_interceptor": true,
+			"websocket_response_observer": true,
+			"usage_plugin":                true,
 		},
 	}
 }
@@ -667,5 +698,56 @@ func (s *seenSet) add(hs []string) {
 	}
 	if len(s.cur) > s.max/2 {
 		s.prev, s.cur = s.cur, map[string]struct{}{}
+	}
+}
+
+// stats is the recorder's own cost, logged every statsInterval so the
+// overhead on real traffic is visible in the proxy log.
+type stats struct {
+	hookCalls, hookNS, hookMaxNS     atomic.Int64
+	requests, workerNS, requestBytes atomic.Int64
+}
+
+const statsInterval = 5 * time.Minute
+
+func (s *stats) hook(d time.Duration) {
+	s.hookCalls.Add(1)
+	s.hookNS.Add(int64(d))
+	for {
+		cur := s.hookMaxNS.Load()
+		if int64(d) <= cur || s.hookMaxNS.CompareAndSwap(cur, int64(d)) {
+			return
+		}
+	}
+}
+
+func (s *stats) worker(d time.Duration, bytes int) {
+	s.requests.Add(1)
+	s.workerNS.Add(int64(d))
+	s.requestBytes.Add(int64(bytes))
+}
+
+func (p *plugin) reportStats() {
+	for range time.Tick(statsInterval) {
+		s := &p.stats
+		reqs := s.requests.Swap(0)
+		calls, hookNS, maxNS := s.hookCalls.Swap(0), s.hookNS.Swap(0), s.hookMaxNS.Swap(0)
+		workerNS, bytes := s.workerNS.Swap(0), s.requestBytes.Swap(0)
+		if reqs == 0 {
+			continue
+		}
+		f := map[string]any{
+			"requests":           reqs,
+			"hook_calls":         calls,
+			"hook_ms_per_req":    float64(hookNS) / float64(reqs) / 1e6,
+			"hook_max_ms":        float64(maxNS) / 1e6,
+			"worker_ms_per_req":  float64(workerNS) / float64(reqs) / 1e6,
+			"request_kb_per_req": bytes / reqs / 1024,
+		}
+		if sk := p.sink.Load(); sk != nil {
+			stored, failed, dropped, spooled := sk.Stats()
+			f["stored"], f["failed_inserts"], f["dropped"], f["spooled"] = stored, failed, dropped, spooled
+		}
+		p.log("info", "recorder: stats", f)
 	}
 }

@@ -57,3 +57,5 @@ plugins:
       clickhouse-user: "prometheus"
       clickhouse-password: "<CLICKHOUSE_PASSWORD from .env>"
       database: "prometheus"
+      spool-dir: "/CLIProxyAPI/recorder-spool"
+      spool-max-mb: 10240

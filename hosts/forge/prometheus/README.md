@@ -25,6 +25,7 @@ the tailnet: `https://prometheus.takaya-buri.ts.net`. Pattern from
 | `/opt/prometheus/logs/` | proxy logs |
 | `/opt/prometheus/usage/` | usage-statistics plugin SQLite (`usage.db`) |
 | `/opt/prometheus/clickhouse/` | ClickHouse data (recorder plugin) |
+| `/opt/prometheus/recorder-spool/` | recorder batches waiting for ClickHouse |
 | `/opt/prometheus/keys.env` | access, management and ClickHouse keys |
 
 ## Install
@@ -33,7 +34,7 @@ the tailnet: `https://prometheus.takaya-buri.ts.net`. Pattern from
 ssh nschmid10049@forge
 limactl shell forge-linux
 sudo apt-get install -y docker-compose-plugin   # once
-sudo install -d -o "$USER" /opt/prometheus /opt/prometheus/{auths,ts-state,logs,clickhouse}
+sudo install -d -o "$USER" /opt/prometheus /opt/prometheus/{auths,ts-state,logs,clickhouse,recorder-spool}
 # copy config.example.yaml → /opt/prometheus/config.yaml, fill the keys (chmod 600)
 # put TS_AUTHKEY (optional) and CLICKHOUSE_PASSWORD in ~/prometheus/.env (chmod 600)
 cd ~/prometheus && docker compose up -d
@@ -120,9 +121,23 @@ Notes:
   get the whole conversation.
 - Usage records carry their own RequestID; they are paired with hook data by
   TraceID, oldest first (a Codex websocket carries several turns per trace).
-- Hooks run synchronously but only copy bytes; inserts are batched (2 s / 200
-  rows) on a background queue (2048). ClickHouse down → retries, then drops
-  with a log line; nothing blocks proxied requests.
+- Retention: none. Everything is kept forever; watch disk on the VM
+  (`SELECT formatReadableSize(sum(bytes_on_disk)) FROM system.parts WHERE active`).
+- ClickHouse down: batches go to `/opt/prometheus/recorder-spool` (fsynced,
+  capped at `spool-max-mb`, default 10 GiB) and replay in order once it's
+  back, also across proxy restarts. Each insert carries a fixed
+  `insert_deduplication_token` (tables have `non_replicated_deduplication_window`),
+  so an insert that landed before its connection dropped isn't stored twice.
+  Tested live by stopping ClickHouse mid-traffic: 52 files spooled, replayed,
+  no duplicates, no gaps.
+- Cost: hooks only copy bytes on the request path; dedup and encoding run on
+  a background worker. Large base64 bodies are cut out of the hook payload
+  with a byte search instead of the JSON scanner (`wire.go`). Benchmark on
+  forge with a real 1.3 MB Claude request (p99 is 0.8 MB): hooks 6 ms
+  (incl. the host's marshalling; decoding the body once is 6 ms),
+  background 16 ms. The plugin logs `recorder: stats` (hook/worker ms per
+  request) every 5 min. Re-run: `RECORDER_BENCH_DIR=<dir with body.json,
+  resp.sse> go test -run x -bench .` in `recorder/`.
 - The dedup cache is in memory: after a proxy restart, each live session's
   first request writes its history again (collapsed by ReplacingMergeTree).
 - Schema: `clickhouse/initdb/001_schema.sql`, applied on first start only.

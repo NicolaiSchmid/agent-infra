@@ -41,6 +41,8 @@ services:
       - /opt/prometheus/auths:/root/.cli-proxy-api
       - /opt/prometheus/logs:/CLIProxyAPI/logs
       - /opt/prometheus/usage:/CLIProxyAPI/usage
+      # recorder: batches waiting for ClickHouse (replayed in order)
+      - /opt/prometheus/recorder-spool:/CLIProxyAPI/recorder-spool
     depends_on:
       - tailscale
       - clickhouse
