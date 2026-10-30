@@ -22,7 +22,10 @@ forge   Apple-silicon macOS build host
 ```
 
 `black` is intentionally boring: RAID/NixOS, SSH, Tailscale, libvirt, and UDP
-forwarding into the VM.
+forwarding into the VM. Since 2026-10-30 it also runs a capped demo of the
+client-data stack (self-hosted Convex, Garage, E2B, Traefik;
+`hosts/black/client-data.nix`), which moves to its own server before it
+holds client data.
 
 `atlas` is where the work happens. It imports the shared agent environment from
 `dotfiles-nix`, owns the persisted state volume, and runs the agent services.
@@ -153,5 +156,6 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Bootstrap](runbooks/bootstrap.md)
 - [Forge operations](runbooks/forge.md)
 - [Atlas I/O priorities and build sweep](runbooks/atlas-build-sweep.md)
+- [Client-data stack demo on black (Convex, Garage, E2B, Traefik)](runbooks/black-client-data-demo.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Secrets](secrets/README.md)
