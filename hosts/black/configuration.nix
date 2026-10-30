@@ -11,6 +11,7 @@ in {
     ./libvirt.nix
     ./networking.nix
     ./sops.nix
+    ./client-data.nix
   ];
 
   boot.loader.grub = {

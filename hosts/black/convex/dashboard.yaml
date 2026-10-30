@@ -1,0 +1,34 @@
+# One Convex dashboard for every deployment, tailnet-only through Traefik
+# (https://<tailnet host>:6791). Without NEXT_PUBLIC_DEPLOYMENT_URL it asks
+# for the deployment URL and admin key at login.
+name: convex-dashboard
+
+services:
+  dashboard:
+    image: ghcr.io/convex/convex-dashboard:bb31399c8704ceb6c19003936f6e144375b2c3bc@sha256:a55bf8abca1332f787bc4d4a79850182175027be7b70aa230be4389a1d3268e2
+    restart: unless-stopped
+    oom_score_adj: 1000
+    mem_limit: 256m
+    cpus: 0.5
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    environment:
+      # The editor from the image instead of a CDN.
+      NEXT_PUBLIC_LOAD_MONACO_INTERNALLY: "true"
+    networks: [traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.convex-dashboard.rule=Host(`${TAILNET_HOST:?}`)"
+      - "traefik.http.routers.convex-dashboard.entrypoints=tailnet-dashboard"
+      - "traefik.http.routers.convex-dashboard.tls.certresolver=tailscale"
+      - "traefik.http.routers.convex-dashboard.middlewares=tailnet-only@docker"
+      - "traefik.http.services.convex-dashboard.loadbalancer.server.port=6791"
+
+networks:
+  traefik-public:
+    external: true

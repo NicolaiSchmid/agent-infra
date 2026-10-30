@@ -1,0 +1,92 @@
+# Traefik in front of the client-data stack on black. Same shape as
+# nunc-immo/compose-services traefik/docker-compose.yml (CLI flags, docker
+# provider over /run with exposedbydefault=false and the traefik.instance
+# constraint, external traefik-public network, web -> websecure redirect,
+# dashboard as an api@internal router), with three differences:
+# - ACME by HTTP-01 only (no DNS provider token here), staging until the DNS
+#   records exist (ACME_CA_SERVER in black.env);
+# - a `tailscale` resolver: black's own tailscaled issues the cert for
+#   black.takaya-buri.ts.net, which Let's Encrypt cannot validate;
+# - admin routes (Traefik and Convex dashboards) are allowlisted to the
+#   tailnet instead of basic auth.
+# Custom domains: one router per domain in dynamic/, see custom-domains.yml.
+name: traefik
+
+services:
+  traefik:
+    image: traefik:v3.7.16@sha256:1336e85aaed293bd63d005086e0dd013b04078b26aaeb1c18b26a2f928af7e65
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    oom_score_adj: 1000
+    mem_limit: 256m
+    cpus: 1
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    ports:
+      # Public: each Convex deployment's two origins (and custom domains).
+      - "80:80"
+      - "443:443"
+      # Tailnet-only entrypoint; anything else gets 403 from tailnet-only.
+      - "6791:6791"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      # /run, not the socket file: a file mount goes stale when dockerd restarts.
+      - /run:/host-run:ro,rslave
+      # The tailscale resolver talks to tailscaled's LocalAPI at this path.
+      - /run/tailscale:/var/run/tailscale
+      - ${TRAEFIK_DATA_DIR:?}:/certificates
+      - ${TRAEFIK_DYNAMIC_DIR:?}:/etc/traefik/dynamic:ro
+    networks:
+      - traefik-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.http.middlewares.tailnet-only.ipallowlist.sourcerange=100.64.0.0/10,fd7a:115c:a1e0::/48"
+      - "traefik.http.routers.dashboard.rule=Host(`${TAILNET_HOST:?}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls.certresolver=tailscale"
+      - "traefik.http.routers.dashboard.middlewares=tailnet-only@docker"
+    command:
+      # Provider settings
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///host-run/docker.sock
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik-public
+      - --providers.docker.constraints=Label(`traefik.instance`,`main`)
+      - --providers.file.directory=/etc/traefik/dynamic
+
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.tailnet-dashboard.address=:6791
+      # LLM responses stream through Convex HTTP actions for up to 30 min.
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=1800s
+      - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=1800s
+
+      # HTTPS redirect
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+
+      # Let's Encrypt (HTTP-01 on :80)
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?}
+      - --certificatesresolvers.letsencrypt.acme.storage=/certificates/acme.json
+      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:?}
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      # Tailnet hostname
+      - --certificatesresolvers.tailscale.tailscale=true
+
+      # API and Dashboard
+      - --api.dashboard=true
+      - --api.insecure=false
+
+      # Debugging
+      # - --accesslog=true
+      # - --log.level=DEBUG
+
+networks:
+  traefik-public:
+    external: true

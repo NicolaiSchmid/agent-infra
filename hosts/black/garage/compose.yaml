@@ -1,0 +1,35 @@
+# Garage (S3) for the client-data stack on black. Reached by the Convex
+# backends on the `garage` network as http://garage:3900 and by the backup
+# timers on 127.0.0.1:3900; never through Traefik. Admin: `docker exec garage
+# /garage ...` on black (admin API on 127.0.0.1:3903, for an SSH tunnel).
+name: garage
+
+services:
+  garage:
+    image: dxflrs/garage:v2.5.0@sha256:677e5b758e4425a325b811c425c026bf35a4bf42f7ddbaa773de3f4fd779a5a5
+    container_name: garage
+    restart: unless-stopped
+    oom_score_adj: 1000
+    mem_limit: 256m
+    cpus: 1
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    env_file: ${GARAGE_SECRETS_FILE:?}
+    volumes:
+      - ${GARAGE_CONFIG:?}:/etc/garage.toml:ro
+      - ${GARAGE_DATA_DIR:?}/meta:/var/lib/garage/meta
+      - ${GARAGE_DATA_DIR:?}/data:/var/lib/garage/data
+    ports:
+      - 127.0.0.1:3900:3900
+      - 127.0.0.1:3903:3903
+    networks: [garage]
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+networks:
+  garage:
+    external: true
