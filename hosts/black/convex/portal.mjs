@@ -212,11 +212,10 @@ td:last-child { text-align: right; }
 
 function page(res, title, body, script = "") {
   const nonce = b64(randomBytes(16));
-  const connect = ["'self'", ...deployments.map((d) => new URL(d.url).origin)].join(" ");
   res.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
-    "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src ${connect}; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
+    "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
   });
   res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escape(title)}</title><style>${STYLE}</style></head><body>${body}
@@ -268,23 +267,29 @@ document.getElementById("enroll").onclick = async () => {
 };`,
     ),
 
-  list: (res) =>
-    page(
+  // Health checked from here: /version sends no CORS headers.
+  list: async (res) => {
+    const health = await Promise.all(
+      deployments.map((d) =>
+        fetch(`${d.url}/version`, { signal: AbortSignal.timeout(3000) }).then(
+          (r) => (r.ok ? "up" : `HTTP ${r.status}`),
+          () => "unreachable",
+        ),
+      ),
+    );
+    return page(
       res,
       "Convex deployments",
       `<main><h1>Convex deployments</h1><table>${deployments
         .map(
-          (d) => `<tr><td><strong>${escape(d.name)}</strong><br><span class="muted">${escape(d.url)}</span></td>
-<td class="muted" data-version="${escape(d.url)}">…</td>
+          (d, i) => `<tr><td><strong>${escape(d.name)}</strong><br><span class="muted">${escape(d.url)}</span></td>
+<td class="muted">${health[i]}</td>
 <td><a class="button" href="/_portal/d/${escape(d.name)}/">Open dashboard</a></td></tr>`,
         )
         .join("")}</table><p><button id="logout">Sign out</button></p><p id="status" class="muted"></p></main>`,
-      `for (const cell of document.querySelectorAll("[data-version]")) {
-  fetch(cell.dataset.version + "/version").then((r) => r.ok ? r.text() : Promise.reject())
-    .then((v) => { cell.textContent = "up, " + v; }, () => { cell.textContent = "unreachable"; });
-}
-document.getElementById("logout").onclick = () => post("logout").then(() => { location.href = "/_portal/login"; });`,
-    ),
+      `document.getElementById("logout").onclick = () => post("logout").then(() => { location.href = "/_portal/login"; });`,
+    );
+  },
 
   deployment: (res, name, rest) =>
     page(
