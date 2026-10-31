@@ -15,7 +15,7 @@ services:
     security_opt:
       - no-new-privileges:true
     oom_score_adj: 1000
-    mem_limit: 64m
+    mem_limit: 128m
     cpus: 0.25
     logging:
       driver: json-file

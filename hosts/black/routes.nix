@@ -4,8 +4,7 @@
 # - hosts: hostnames it may claim, exact or "*.<domain>" for any single
 #   label under <domain>; no two projects may claim the same name;
 # - convex: deployments (convex/deployments.nix) it may send traffic to,
-#   either origin (cloud: API and WebSocket; site: HTTP actions);
-# - upstreams: external HTTPS hosts it may proxy to (its Vercel domain).
+#   either origin (cloud: API and WebSocket; site: HTTP actions).
 # A leaked key can reroute only that project's hostnames, and only to that
 # project's targets. Operations: runbooks/black-client-data-demo.md, section
 # "Routes API".
@@ -28,25 +27,16 @@
   projects = {
     # NicolaiSchmid/modus, apps/gateway.
     modus-gateway = {
-      hosts = [
-        # Add with their DNS records (runbook, section DNS):
-        # "gateway.modusservice.com"
-        # "gateway-dev.modusservice.com"
-      ];
+      hosts = ["inference.modusservice.com" "inference-dev.modusservice.com"];
       convex = ["modus-gateway-dev" "modus-gateway-prod"];
-      upstreams = [
-        # The modus-gateway Vercel project's production domain:
-        # "<project>.vercel.app"
-      ];
     };
     # NicolaiSchmid/modus, apps/site (its Convex project).
     modus = {
       hosts = [];
       convex = ["modus-dev" "modus-prod"];
-      upstreams = [];
     };
     # June (NicolaiSchmid/nicoolai) joins with its hostnames, convex =
-    # ["june-dev" "june-prod"] and its Vercel domain.
+    # ["june-dev" "june-prod"].
   };
 
   inherit (import ./convex/deployments.nix) baseDomain deployments;
@@ -55,21 +45,18 @@
   dir = "${stateDir}/routes";
   keysDir = "${dir}/keys";
 
-  api = pkgs.buildGoModule {
-    pname = "routes-api";
-    version = "0.1.0";
-    src = lib.fileset.toSource {
-      root = ./routes;
-      fileset = lib.fileset.unions [
-        ./routes/go.mod
-        ./routes/testdata
-        (lib.fileset.fileFilter (f: f.hasExt "go") ./routes)
-      ];
-    };
-    vendorHash = null;
-    env.CGO_ENABLED = "0";
-    ldflags = ["-s" "-w"];
-  };
+  api = pkgs.runCommand "routes-api" {nativeBuildInputs = [pkgs.nodejs_24];} ''
+    cp -r ${./routes} source
+    chmod -R u+w source
+    node --test source/*.test.ts
+    mkdir -p $out/lib $out/bin
+    cp source/*.ts source/package.json $out/lib/
+    cat > $out/bin/routes-api <<EOF
+    #!${pkgs.runtimeShell}
+    exec ${pkgs.nodejs_24}/bin/node $out/lib/server.ts "\$@"
+    EOF
+    chmod +x $out/bin/routes-api
+  '';
   image = pkgs.dockerTools.streamLayeredImage {
     name = "routes-api";
     contents = [api];

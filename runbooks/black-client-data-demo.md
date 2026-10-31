@@ -217,8 +217,8 @@ means changing those too.
 Each project keeps its routing table in its own repository and pushes it
 from its deploy pipeline; this repository only says what a project may
 route. `hosts/black/routes.nix` holds the registry, `hosts/black/routes/`
-the service (Go, standard library only, built by Nix into an image the unit
-loads into Docker) and its compose file.
+the TypeScript service (Node.js 24, built and tested by Nix into an image
+the unit loads into Docker) and its compose file.
 
 ### The API
 
@@ -234,13 +234,8 @@ loads into Docker) and its compose file.
 {
   "routes": [
     {
-      "host": "gateway.modusservice.com",
-      "pathPrefix": "/v1",
+      "host": "inference.modusservice.com",
       "target": { "convex": "modus-gateway-prod", "origin": "site" }
-    },
-    {
-      "host": "gateway.modusservice.com",
-      "target": { "url": "https://<vercel-production-domain>" }
     }
   ]
 }
@@ -252,18 +247,17 @@ loads into Docker) and its compose file.
   -`, at most 128. Traefik's `PathPrefix` compares strings, so `/v1` also
   matches `/v10`. On one host the longest prefix wins; a route without one
   takes the rest.
-- `target`: either `convex` (one of the project's deployments) with
-  `origin` `cloud` (API, WebSocket) or `site` (HTTP actions), or `url`,
-  `https://<host>` with a host from the project's `upstreams` and nothing
-  else (no port, path or query). The upstream receives its own hostname as
-  `Host` (Vercel routes by it), the original one as `X-Forwarded-Host`.
+- `target`: `convex` (one of the project's deployments) with `origin`
+  `cloud` (API, WebSocket) or `site` (HTTP actions). External URLs are rejected.
+  The dashboard at `gateway.modusservice.com` points directly to Vercel;
+  black carries only Convex traffic.
 
 At most 64 routes and 64 KiB; host and prefix pairs must be unique. Answers:
 `200` with the route count and a hash of the stored table, `400` for a
-malformed table, `401` for a missing or wrong key, `403` for a host,
-deployment or upstream outside the registry, `404` for an unknown project,
-`413` for a body over the limit. Errors are JSON `{"error": "..."}` listing
-every problem.
+malformed table, `401` for a missing or wrong key, `403` for a host
+or deployment outside the registry, `404` for an unknown project,
+`413` for a body over the limit. Errors are JSON `{"error": "..."}` describing
+the problem.
 
 From a pipeline (the key in a Sensitive environment variable):
 
@@ -322,7 +316,7 @@ Rotate: delete the key file, `systemctl restart routes`, update the app.
 
 The API is public, so the registry, not the key, bounds what a push can
 do: a leaked key can point that project's own hostnames at that project's
-own deployments and upstreams, and nothing else. It cannot claim another
+own Convex deployments, and nothing else. It cannot claim another
 project's or a Convex hostname (the evaluation asserts that no two projects
 claim the same name and that none claims `routes.modusservice.com` or a host
 under `convex.modusservice.com`), cannot reach another project's deployment,
@@ -330,13 +324,13 @@ and cannot add middlewares or arbitrary upstreams: the schema has no field
 for them, unknown fields are rejected, and the file is written with a JSON
 encoder from validated values (hostnames and prefixes cannot contain a
 backtick). The container runs as uid 65532 with a read-only root, no
-capabilities and 64 MiB, and writes only its state directory and Traefik's
+capabilities and 128 MiB, and writes only its state directory and Traefik's
 dynamic directory.
 
 ### Add a project
 
 1. An entry in `projects` in `hosts/black/routes.nix`: its `hosts`, its
-   Convex deployments, its upstreams (June is sketched there).
+   Convex deployments (June is sketched there).
 2. DNS records for its hosts (section DNS).
 3. Switch. The `routes` unit generates the project's key.
 4. Copy the key into the project's pipeline and push its table.
