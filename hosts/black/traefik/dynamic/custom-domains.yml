@@ -11,4 +11,5 @@
 #       service: convex-site@docker
 #       tls:
 #         certResolver: letsencrypt
-http: {}
+# (No custom domains yet. Traefik rejects an empty `http: {}`, so the file
+# holds only this example until the first one.)
