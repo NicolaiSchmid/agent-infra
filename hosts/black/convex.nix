@@ -227,6 +227,10 @@
           # The script prints a label line, then the key.
           ${compose name d} exec -T backend ./generate_admin_key.sh | tail -n 1 > ${adminKeyFile name}.tmp
           mv ${adminKeyFile name}.tmp ${adminKeyFile name}
+          # The portal mounts every admin key, so it can only list a new
+          # deployment once the key exists; its reload in the same switch ran
+          # before. Fails harmlessly until every new deployment has its key.
+          ${config.systemd.package}/bin/systemctl reload --no-block convex-dashboard.service || true
         '';
         ExecStop = "${compose name d} down";
       };

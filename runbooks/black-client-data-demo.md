@@ -186,7 +186,7 @@ One entry in `deployments` in `hosts/black/convex.nix` (name, two unused
 loopback ports, memory, CPUs), then switch. `convex-provision` creates its
 buckets, key and secrets file; the unit starts the backend and writes its
 admin key; Traefik picks up its two routers from the labels; the portal
-lists it after `convex-dashboard` reloads in the same switch. Add its two
+lists it once the unit has written the key and reloaded `convex-dashboard`. Add its two
 hostnames to the DNS repository first (section DNS).
 
 ## Custom domains
