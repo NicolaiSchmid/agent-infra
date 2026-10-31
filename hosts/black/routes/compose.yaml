@@ -20,7 +20,7 @@ services:
     logging:
       driver: json-file
       options: {max-size: "20m", max-file: "5"}
-    command: [-config, /config/registry.json, -keys, /keys, -state, /state, -dynamic, /dynamic, -listen, ":8080"]
+    command: [-config, /config/registry.json, -keys, /keys, -state, /state, -dynamic, /dynamic]
     volumes:
       - ${ROUTES_REGISTRY:?}:/config/registry.json:ro
       - ${ROUTES_KEYS_DIR:?}:/keys:ro
