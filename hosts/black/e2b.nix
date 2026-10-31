@@ -109,7 +109,7 @@ in {
       ip46tables -I nixos-fw -i veth-+ -p tcp -m multiport --dports 5010:5018 -j nixos-fw-accept
       ip46tables -I nixos-fw -i tailscale0 -p tcp -m multiport --dports ${hostPorts} -j nixos-fw-refuse
       # Convex actions call the api and client-proxy through host-gateway;
-      # every Convex deployment's network is a bridge named cvx-<name>.
+      # every Convex deployment's network is a bridge named cvx-<cloudPort>.
       ip46tables -I nixos-fw -i cvx-+ -p tcp -m multiport --dports 3000,3002 -j nixos-fw-accept
     '';
   };
