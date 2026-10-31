@@ -1,5 +1,5 @@
 # Self-hosted Convex deployments on black (demo; see client-data.nix).
-# Adding a deployment is one entry in `deployments` below, plus its DNS
+# Adding a deployment is one entry in convex/deployments.nix, plus its DNS
 # records (runbooks/black-client-data-demo.md).
 #
 # Per deployment <name>, from the template convex/compose.yaml:
@@ -22,53 +22,12 @@
   lib,
   ...
 }: let
-  # One hostname per origin under this domain, each with its own DNS
-  # record in NicolaiSchmid/dns (no wildcard).
-  baseDomain = "convex.modusservice.com";
+  # The deployments and their domain live in convex/deployments.nix, which
+  # routes.nix reads too.
+  inherit (import ./convex/deployments.nix) baseDomain deployments;
   # The dashboard's own tailnet node (convex/dashboard.yaml), not black's
   # name, so it keeps its address when the stack moves.
   tailnetHost = "convex.takaya-buri.ts.net";
-  deployments = {
-    june-dev = {
-      cloudPort = 13210;
-      sitePort = 13211;
-      memory = "768m";
-      cpus = "1";
-    };
-    june-prod = {
-      cloudPort = 13220;
-      sitePort = 13221;
-      memory = "1g";
-      cpus = "1.5";
-    };
-    # The MODUS AI token gateway.
-    modus-gateway-dev = {
-      cloudPort = 13230;
-      sitePort = 13231;
-      memory = "512m";
-      cpus = "0.5";
-    };
-    modus-gateway-prod = {
-      cloudPort = 13240;
-      sitePort = 13241;
-      memory = "768m";
-      cpus = "1";
-    };
-    # MODUS itself: contracts, consent and billing (apps/site/convex in the
-    # modus repository). Holds firm contacts, never client data.
-    modus-dev = {
-      cloudPort = 13250;
-      sitePort = 13251;
-      memory = "512m";
-      cpus = "0.5";
-    };
-    modus-prod = {
-      cloudPort = 13260;
-      sitePort = 13261;
-      memory = "768m";
-      cpus = "1";
-    };
-  };
 
   docker = "${config.virtualisation.docker.package}/bin/docker";
   secrets = "${stateDir}/secrets";

@@ -1,6 +1,7 @@
 # Client-data stack DEMO on black: self-hosted Convex deployments (convex.nix)
 # with Garage S3 (garage.nix), E2B sandboxes (e2b.nix) and Traefik in front
-# (traefik.nix), for moving June off Convex Cloud and Vercel Sandbox.
+# (traefik.nix), for moving June off Convex Cloud and Vercel Sandbox, and
+# routes-api (routes.nix), through which each project pushes its own routes.
 # It must not hold real client data; before tax-firm contracts it moves to its
 # own server (runbooks/black-client-data-demo.md has the why and the move).
 #
@@ -18,12 +19,16 @@
 # /var/lib/client-data, so the move is this config plus that directory.
 let
   stateDir = "/var/lib/client-data";
+  # Traefik's file provider directory: static files from the repository and
+  # the routes each project pushes (traefik.nix, routes.nix).
+  traefikDynamicDir = "${stateDir}/traefik-dynamic";
 in {
   imports = [
     (import ./convex.nix {inherit stateDir;})
     (import ./e2b.nix {inherit stateDir;})
-    (import ./traefik.nix {inherit stateDir;})
+    (import ./traefik.nix {inherit stateDir traefikDynamicDir;})
     (import ./garage.nix {inherit stateDir;})
+    (import ./routes.nix {inherit stateDir traefikDynamicDir;})
   ];
 
   virtualisation.docker = {

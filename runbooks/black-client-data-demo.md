@@ -20,6 +20,7 @@ qemu, quota 3 CPUs, MemoryMax 3G):
 | Unit / project | What | Reached at |
 |---|---|---|
 | `traefik` (`hosts/black/traefik/`) | TLS on 80/443, Host-rule routing, ACME | public 80/443; tailnet-only `:443` (Traefik dashboard); unpublished `:6792` for the Convex dashboard's node |
+| `routes` (`hosts/black/routes.nix`, `routes/`) | routes-api: each project pushes its own Traefik routes | `https://routes.modusservice.com` (public, one API key per project) |
 | `convex-<name>` (`hosts/black/convex/compose.yaml`, one project per deployment) | Convex backend, SQLite, files in Garage | `https://<name>.convex.modusservice.com` (API, WebSocket), `https://<name>-site.convex.modusservice.com` (HTTP actions); loopback `127.0.0.1:<cloudPort>/<sitePort>` |
 | `convex-dashboard` (`convex/dashboard.yaml`, `convex/portal.mjs`) | one dashboard for all deployments, behind a passkey portal, on its own tailnet node `convex` | `https://convex.takaya-buri.ts.net` (tailnet only) |
 | `garage` (`hosts/black/garage/`) | single-node S3 (Garage v2.5.0) | docker network `garage` (`http://garage:3900`), `127.0.0.1:3900` (S3), `127.0.0.1:3903` (admin) |
@@ -27,7 +28,7 @@ qemu, quota 3 CPUs, MemoryMax 3G):
 | `convex-<name>-backup.timer` | daily snapshot export into Garage | 03:30 + up to 30 min |
 | `e2b` (`hosts/black/e2b.nix`, E2B Embed compose) | Firecracker sandboxes | tailnet: `http://black.takaya-buri.ts.net:3000` (api), `http://100.125.234.34:3002` (client-proxy); Convex containers: `http://host.docker.internal:3000`, `http://172.17.0.1:3002` |
 
-Deployments (in `hosts/black/convex.nix`, `deployments`):
+Deployments (in `hosts/black/convex/deployments.nix`):
 
 | Deployment | Cloud origin | Site origin | Loopback ports | Memory / CPUs |
 |---|---|---|---|---|
@@ -67,6 +68,9 @@ DNS change for the convex hosts (NicolaiSchmid/dns#104) on 2026-10-31:
 | `modus-prod.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 | `modus-prod-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 
+Still to add (2026-10-31), before switching to the routes API:
+`routes.modusservice.com`, same A and AAAA.
+
 Traefik uses the Let's Encrypt production CA (`ACME_CA_SERVER` in
 `hosts/black/traefik/black.env`). Create a new hostname's records before
 its router goes live, or HTTP-01 fails and Let's Encrypt's failed-validation
@@ -91,6 +95,7 @@ deleting an entry from `passkeys.json` revokes that passkey.
 | `garage.env` | `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `GARAGE_METRICS_TOKEN` | `garage` |
 | `convex-tailscale.env` | `TS_AUTHKEY` for the `convex` node's first login; delete after | by hand (Dashboard) |
 | `e2b.env` | `TEAM_API_KEY` (SDK key), `ADMIN_TOKEN`, `SANDBOX_ACCESS_TOKEN_HASH_SEED` | `e2b-secrets` |
+| `routes-<project>-key` | the project's routes API key | `routes` (first start) |
 
 Each deployment's Garage key can read and write only its own buckets
 (`<name>-files`, `-modules`, `-search`, `-exports`, `-snapshot-imports`,
@@ -188,7 +193,7 @@ SDK's routing headers for IP or `localhost` hosts, so
 
 ## Add a deployment
 
-One entry in `deployments` in `hosts/black/convex.nix` (name, two unused
+One entry in `hosts/black/convex/deployments.nix` (name, two unused
 loopback ports, memory, CPUs), then switch. `convex-provision` creates its
 buckets, key and secrets file; the unit starts the backend and writes its
 admin key; Traefik picks up its two routers from the labels; the portal
@@ -197,7 +202,8 @@ hostnames to the DNS repository first (section DNS).
 
 ## Custom domains
 
-A customer domain in front of an origin is one more router in
+A domain that belongs to a project goes through the routes API (next
+section), from the project's own repository. For anything else, a customer domain in front of an origin is one more router in
 `hosts/black/traefik/dynamic/custom-domains.yml` (an example is in the
 file), pointing at the service the labels define (`<name>-cloud@docker` or
 `<name>-site@docker`) with `certResolver: letsencrypt`, plus the customer's
@@ -205,6 +211,131 @@ A/AAAA (or CNAME) record to black. Note that Convex builds its own URLs
 (file storage, HTTP action links) from `CONVEX_CLOUD_ORIGIN`/
 `CONVEX_SITE_ORIGIN`, so a custom domain for a deployment's primary origin
 means changing those too.
+
+## Routes API
+
+Each project keeps its routing table in its own repository and pushes it
+from its deploy pipeline; this repository only says what a project may
+route. `hosts/black/routes.nix` holds the registry, `hosts/black/routes/`
+the TypeScript service (Node.js 24, built and tested by Nix into an image
+the unit loads into Docker) and its compose file.
+
+### The API
+
+`https://routes.modusservice.com`, one key per project, sent as
+`Authorization: Bearer <key>`.
+
+- `PUT /v1/projects/<project>/routes` replaces the project's whole table
+  (pushing the same table again changes nothing). `{"routes": []}` removes
+  every route.
+- `GET /v1/projects/<project>/routes` returns the stored table.
+
+```json
+{
+  "routes": [
+    {
+      "host": "inference.modusservice.com",
+      "target": { "convex": "modus-gateway-prod", "origin": "site" }
+    }
+  ]
+}
+```
+
+- `host`: one of the project's `hosts` in the registry, or one label under
+  one of its `*.<domain>` entries.
+- `pathPrefix` (optional): starts with `/`, characters `A-Z a-z 0-9 . _ ~ /
+  -`, at most 128. Traefik's `PathPrefix` compares strings, so `/v1` also
+  matches `/v10`. On one host the longest prefix wins; a route without one
+  takes the rest.
+- `target`: `convex` (one of the project's deployments) with `origin`
+  `cloud` (API, WebSocket) or `site` (HTTP actions). External URLs are rejected.
+  The dashboard at `gateway.modusservice.com` points directly to Vercel;
+  black carries only Convex traffic.
+
+At most 64 routes and 64 KiB; host and prefix pairs must be unique. Answers:
+`200` with the route count and a hash of the stored table, `400` for a
+malformed table, `401` for a missing or wrong key, `403` for a host
+or deployment outside the registry, `404` for an unknown project,
+`413` for a body over the limit. Errors are JSON `{"error": "..."}` describing
+the problem.
+
+From a pipeline (the key in a Sensitive environment variable):
+
+```bash
+curl -fsS -X PUT https://routes.modusservice.com/v1/projects/modus-gateway/routes \
+  -H "Authorization: Bearer $MODUS_ROUTES_KEY" \
+  -H 'Content-Type: application/json' \
+  --data @routes.json
+```
+
+### What happens on black
+
+routes-api checks the table, stores it in
+`/var/lib/client-data/routes/state/<project>.json`, then writes
+`routes-<project>.yml` into Traefik's file provider directory
+`/var/lib/client-data/traefik-dynamic` through a temporary file and a
+rename; Traefik picks it up within seconds. Router and service names start
+with `routes-<project>-`, so projects cannot collide. On every start it
+renders each project's stored table again, skips (and logs) tables the
+registry no longer allows, and removes the files of projects that left the
+registry. Each accepted push is logged with project, route count and the
+table's hash (`docker logs routes-api-1`), never the key or the table.
+
+The same directory holds the static files from `hosts/black/traefik/dynamic/`
+(`custom-domains.yml`), which the `traefik` unit installs on every start and
+reload. Names starting with `routes-` belong to routes-api.
+
+### Certificates
+
+Every host gets its own certificate from Let's Encrypt by HTTP-01 on its
+first request after the push. The host's A/AAAA record must point at black
+before the push, or validation fails, Traefik retries with every new
+configuration, and Let's Encrypt's limit of 5 failed validations per host
+and hour kicks in. Order: DNS record, then the host in the registry and a
+switch, then the push.
+
+### Keys
+
+`/var/lib/client-data/secrets/routes-<project>-key` on black (root, 0600),
+generated by the `routes` unit on first start. Copy it into the app's
+environment without printing it; `vercel env add` reads the value from
+standard input:
+
+```bash
+ssh root@black cat /var/lib/client-data/secrets/routes-modus-gateway-key | vercel env add MODUS_ROUTES_KEY production
+```
+
+then mark it Sensitive in the project's settings if the team does not
+enforce that.
+
+The container sees only the keys' SHA-256 hashes
+(`/var/lib/client-data/routes/keys/`) and compares in constant time.
+Rotate: delete the key file, `systemctl restart routes`, update the app.
+
+### Security
+
+The API is public, so the registry, not the key, bounds what a push can
+do: a leaked key can point that project's own hostnames at that project's
+own Convex deployments, and nothing else. It cannot claim another
+project's or a Convex hostname (the evaluation asserts that no two projects
+claim the same name and that none claims `routes.modusservice.com` or a host
+under `convex.modusservice.com`), cannot reach another project's deployment,
+and cannot add middlewares or arbitrary upstreams: the schema has no field
+for them, unknown fields are rejected, and the file is written with a JSON
+encoder from validated values (hostnames and prefixes cannot contain a
+backtick). The container runs as uid 65532 with a read-only root, no
+capabilities and 128 MiB, and writes only its state directory and Traefik's
+dynamic directory.
+
+### Add a project
+
+1. An entry in `projects` in `hosts/black/routes.nix`: its `hosts`, its
+   Convex deployments (June is sketched there).
+2. DNS records for its hosts (section DNS).
+3. Switch. The `routes` unit generates the project's key.
+4. Copy the key into the project's pipeline and push its table.
+
+A new host for an existing project is steps 2, then 1 and 3.
 
 ## Data stays local
 
@@ -322,7 +453,7 @@ the hugepage count, and the slice budget. To move:
    own `stateDir` and a slice sized for a dedicated machine
    (drop the 3 CPU / 3G ceiling, raise `HUGEPAGES` to 2048 or more).
 2. Stop the stack on black (`systemctl stop convex-june-dev convex-june-prod
-   convex-dashboard e2b garage traefik`) and copy
+   convex-dashboard e2b garage routes traefik`) and copy
    `/var/lib/client-data` with `rsync -aHAX --numeric-ids`. It holds SQLite,
    Garage, E2B's databases and templates, certificates, secrets, the
    portal's passkeys and the `convex` tailnet node's identity, so the
