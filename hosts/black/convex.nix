@@ -41,6 +41,33 @@
       memory = "1g";
       cpus = "1.5";
     };
+    # The MODUS AI token gateway.
+    modus-gateway-dev = {
+      cloudPort = 13230;
+      sitePort = 13231;
+      memory = "512m";
+      cpus = "0.5";
+    };
+    modus-gateway-prod = {
+      cloudPort = 13240;
+      sitePort = 13241;
+      memory = "768m";
+      cpus = "1";
+    };
+    # MODUS itself: contracts, consent and billing (apps/site/convex in the
+    # modus repository). Holds firm contacts, never client data.
+    modus-dev = {
+      cloudPort = 13250;
+      sitePort = 13251;
+      memory = "512m";
+      cpus = "0.5";
+    };
+    modus-prod = {
+      cloudPort = 13260;
+      sitePort = 13261;
+      memory = "768m";
+      cpus = "1";
+    };
   };
 
   docker = "${config.virtualisation.docker.package}/bin/docker";
@@ -214,6 +241,10 @@
           # The script prints a label line, then the key.
           ${compose name d} exec -T backend ./generate_admin_key.sh | tail -n 1 > ${adminKeyFile name}.tmp
           mv ${adminKeyFile name}.tmp ${adminKeyFile name}
+          # The portal mounts every admin key, so it can only list a new
+          # deployment once the key exists; its reload in the same switch ran
+          # before. Fails harmlessly until every new deployment has its key.
+          ${config.systemd.package}/bin/systemctl reload --no-block convex-dashboard.service || true
         '';
         ExecStop = "${compose name d} down";
       };
