@@ -41,6 +41,19 @@
       memory = "1g";
       cpus = "1.5";
     };
+    # The MODUS AI token gateway.
+    modus-gateway-dev = {
+      cloudPort = 13230;
+      sitePort = 13231;
+      memory = "512m";
+      cpus = "0.5";
+    };
+    modus-gateway-prod = {
+      cloudPort = 13240;
+      sitePort = 13241;
+      memory = "768m";
+      cpus = "1";
+    };
   };
 
   docker = "${config.virtualisation.docker.package}/bin/docker";

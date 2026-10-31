@@ -33,6 +33,8 @@ Deployments (in `hosts/black/convex.nix`, `deployments`):
 |---|---|---|---|---|
 | `june-dev` | `https://june-dev.convex.modusservice.com` | `https://june-dev-site.convex.modusservice.com` | 13210 / 13211 | 768m / 1 |
 | `june-prod` | `https://june-prod.convex.modusservice.com` | `https://june-prod-site.convex.modusservice.com` | 13220 / 13221 | 1g / 1.5 |
+| `modus-gateway-dev` | `https://modus-gateway-dev.convex.modusservice.com` | `https://modus-gateway-dev-site.convex.modusservice.com` | 13230 / 13231 | 512m / 0.5 |
+| `modus-gateway-prod` | `https://modus-gateway-prod.convex.modusservice.com` | `https://modus-gateway-prod-site.convex.modusservice.com` | 13240 / 13241 | 768m / 1 |
 
 `CONVEX_CLOUD_ORIGIN` and `CONVEX_SITE_ORIGIN` are these hostnames.
 
@@ -54,6 +56,10 @@ DNS change for the convex hosts (NicolaiSchmid/dns#104) on 2026-10-31:
 | `june-dev-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 | `june-prod.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 | `june-prod-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `modus-gateway-dev.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `modus-gateway-dev-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `modus-gateway-prod.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `modus-gateway-prod-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 
 Traefik uses the Let's Encrypt production CA (`ACME_CA_SERVER` in
 `hosts/black/traefik/black.env`). Create a new hostname's records before
