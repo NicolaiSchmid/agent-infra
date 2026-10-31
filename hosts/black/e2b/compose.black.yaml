@@ -1,0 +1,122 @@
+# black's changes to E2B Embed's compose.yaml (the pinned upstream file is the
+# first -f, this is the second; hosts/black/e2b.nix runs both).
+#
+# - NixOS: there is no /bin/bash and /etc is read-only, so preflight runs the
+#   host's bash and host-setup only checks what e2b.nix set up declaratively
+#   (modules, hugepages, udev rule, bind mounts), adding the two runtime bits
+#   upstream's host-setup adds on every up (TCP MSS clamp, /var/run/netns).
+# - Small host: no web dashboard (dashboard, dashboard-api), the databases'
+#   loopback ports off the usual 5432/6379/9000/8123, and every long-running
+#   service gets a memory/CPU cap and goes first in a host-wide OOM
+#   (hosts/black/client-data.nix has the budget).
+# - Data: the named volumes are bind mounts under /var/lib/client-data/e2b.
+x-db-urls:
+  postgres: &postgres postgres://postgres:postgres@127.0.0.1:15432/postgres?sslmode=disable
+  redis: &redis 127.0.0.1:16379
+  clickhouse: &clickhouse clickhouse://clickhouse:clickhouse@127.0.0.1:19000/default
+
+services:
+  preflight:
+    command: ["/bin/sh", "-c", "exec nsenter -t 1 -m -u -i -n -p -- /usr/bin/env PATH=/usr/local/bin /usr/local/bin/bash -s < /opt/e2b/scripts/preflight.sh"]
+
+  host-setup:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        exec nsenter -t 1 -m -u -i -n -p -- /usr/bin/env PATH=/usr/local/bin /usr/local/bin/bash -c '
+          set -eu
+          fail() { echo "host-setup: $$1" >&2; echo "FIX: $$2" >&2; exit 1; }
+          rebuild="hosts/black/e2b.nix sets this up: nixos-rebuild switch, then start the stack again"
+          [ "$$(cat /sys/module/nbd/parameters/nbds_max 2>/dev/null || echo 0)" -ge "$$NBDS_MAX" ] || fail "nbd is not loaded with nbds_max>=$$NBDS_MAX" "$$rebuild"
+          [ -b /dev/nbd0 ] || fail "/dev/nbd0 is missing" "$$rebuild"
+          [ "$$(cat /proc/sys/vm/nr_hugepages)" -ge "$$HUGEPAGES" ] || fail "fewer than $$HUGEPAGES hugepages reserved" "$$rebuild; on a fragmented host, sysctl -w vm.nr_hugepages=$$HUGEPAGES again or reboot"
+          for d in /var/lib/e2b /fc-versions /fc-kernels /fc-busybox /fc-envd /fc-vm /orchestrator; do
+            mountpoint -q "$$d" || fail "$$d is not bind-mounted from /var/lib/client-data/e2b" "$$rebuild"
+          done
+          install -d -m 0755 /var/lib/e2b/bin /var/lib/e2b/storage/templates /var/lib/e2b/storage/build-cache /var/run/netns
+          rule="-p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu"
+          iptables -w 5 -t mangle -C FORWARD $$rule 2>/dev/null || iptables -w 5 -t mangle -I FORWARD 1 $$rule
+          echo "host-setup: ok (NixOS-managed; nbds_max=$$(cat /sys/module/nbd/parameters/nbds_max) hugepages=$$(cat /proc/sys/vm/nr_hugepages))"
+        '
+
+  fetch-artifacts:
+    # Only the directories it writes, not the whole host root.
+    volumes: !override
+      - /var/lib/e2b:/host/var/lib/e2b
+      - /fc-envd:/host/fc-envd
+      - /fc-versions:/host/fc-versions
+      - /fc-kernels:/host/fc-kernels
+      - /fc-busybox:/host/fc-busybox
+
+  postgres:
+    ports: !override ["127.0.0.1:15432:5432"]
+    oom_score_adj: 1000
+    mem_limit: 384m
+    cpus: 0.5
+  redis:
+    ports: !override ["127.0.0.1:16379:6379"]
+    oom_score_adj: 1000
+    mem_limit: 128m
+    cpus: 0.25
+  clickhouse:
+    ports: !override ["127.0.0.1:19000:9000", "127.0.0.1:18123:8123"]
+    oom_score_adj: 1000
+    mem_limit: 768m
+    cpus: 0.5
+  vector:
+    oom_score_adj: 1000
+    mem_limit: 128m
+    cpus: 0.25
+
+  orchestrator:
+    environment:
+      REDIS_URL: *redis
+      CLICKHOUSE_CONNECTION_STRING: *clickhouse
+    # The orchestrator and its template builds. Sandboxes run in
+    # /sys/fs/cgroup/e2b, outside this container; e2b.nix caps them. They
+    # inherit this oom_score_adj.
+    oom_score_adj: 1000
+    mem_limit: 1g
+    cpus: 2
+  api:
+    environment:
+      POSTGRES_CONNECTION_STRING: *postgres
+      REDIS_URL: *redis
+      CLICKHOUSE_CONNECTION_STRING: *clickhouse
+    oom_score_adj: 1000
+    mem_limit: 512m
+    cpus: 1
+  client-proxy:
+    environment:
+      REDIS_URL: *redis
+    oom_score_adj: 1000
+    mem_limit: 256m
+    cpus: 0.5
+  base-template:
+    mem_limit: 512m
+    cpus: 1
+  ready:
+    depends_on: !override
+      base-template:
+        condition: service_completed_successfully
+      client-proxy:
+        condition: service_healthy
+    oom_score_adj: 1000
+    mem_limit: 32m
+    cpus: 0.1
+
+  dashboard:
+    profiles: [dashboard]
+  dashboard-api:
+    profiles: [dashboard]
+
+volumes:
+  postgres:
+    driver_opts: {type: none, o: bind, device: /var/lib/client-data/e2b/postgres}
+  redis:
+    driver_opts: {type: none, o: bind, device: /var/lib/client-data/e2b/redis}
+  clickhouse:
+    driver_opts: {type: none, o: bind, device: /var/lib/client-data/e2b/clickhouse}
+  seed-state:
+    driver_opts: {type: none, o: bind, device: /var/lib/client-data/e2b/seed-state}

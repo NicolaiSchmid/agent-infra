@@ -1,0 +1,106 @@
+# One Convex dashboard for every deployment behind the portal (portal.mjs: a
+# passkey login, the deployment list, each dashboard with its admin key
+# applied), on its own tailnet node https://convex.<tailnet>.ts.net. The node
+# is a Tailscale container with its state under the data dir, so the address
+# moves with the stack to another machine. It terminates TLS and proxies to
+# Traefik's unpublished tailnet-convex entrypoint, which routes /_portal to
+# the portal and the rest to the dashboard after asking the portal
+# (forwardAuth). convex.nix adds the portal's and the node's mounts as a
+# second compose file.
+name: convex-dashboard
+
+services:
+  dashboard:
+    image: ghcr.io/convex/convex-dashboard:bb31399c8704ceb6c19003936f6e144375b2c3bc@sha256:a55bf8abca1332f787bc4d4a79850182175027be7b70aa230be4389a1d3268e2
+    restart: unless-stopped
+    oom_score_adj: 1000
+    mem_limit: 256m
+    cpus: 0.5
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    environment:
+      # The editor from the image instead of a CDN.
+      NEXT_PUBLIC_LOAD_MONACO_INTERNALLY: "true"
+    networks: [traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.convex-dashboard.rule=Host(`${TAILNET_HOST:?}`)"
+      - "traefik.http.routers.convex-dashboard.entrypoints=tailnet-convex"
+      - "traefik.http.routers.convex-dashboard.middlewares=convex-portal-auth@docker"
+      - "traefik.http.services.convex-dashboard.loadbalancer.server.port=6791"
+
+  portal:
+    image: node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+    # A fixed name: Traefik's forwardAuth reaches it by name on traefik-public.
+    container_name: convex-portal
+    restart: unless-stopped
+    command: ["node", "/app/portal.mjs"]
+    # Root in the container only to read the root-owned 0600 admin keys; no
+    # capabilities, nothing writable but its state.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    oom_score_adj: 1000
+    mem_limit: 128m
+    cpus: 0.25
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    environment:
+      PORTAL_CONFIG: /app/config.json
+      PORTAL_STATE_DIR: /state
+    volumes:
+      # Session key, passkeys, the pending enrollment.
+      - ${PORTAL_STATE_DIR:?}:/state
+    networks: [traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.convex-portal.rule=Host(`${TAILNET_HOST:?}`) && PathPrefix(`/_portal`)"
+      - "traefik.http.routers.convex-portal.priority=100"
+      - "traefik.http.routers.convex-portal.entrypoints=tailnet-convex"
+      - "traefik.http.services.convex-portal.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.convex-portal-auth.forwardauth.address=http://convex-portal:8080/_portal/auth"
+
+  tailscale:
+    image: tailscale/tailscale:v1.104.2@sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d
+    restart: unless-stopped
+    hostname: convex
+    oom_score_adj: 1000
+    mem_limit: 128m
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    environment:
+      TS_HOSTNAME: convex
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      # Userspace networking: no tun device or capabilities; serve proxies
+      # from tailscaled itself.
+      TS_USERSPACE: "true"
+      # The auth key only for the first login; after that the identity
+      # lives in the state dir and the key file can go. Without a key the
+      # container gives a browser login 60 s, then restarts with a new
+      # node key, so it never sticks.
+      TS_AUTH_ONCE: "true"
+      TS_EXTRA_ARGS: --reset
+    env_file:
+      # TS_AUTHKEY (runbooks/black-client-data-demo.md, Dashboard).
+      - path: ${TAILSCALE_AUTHKEY_FILE:?}
+        required: false
+    volumes:
+      # The node's identity; moves with the data dir.
+      - ${TAILSCALE_STATE_DIR:?}:/var/lib/tailscale
+    networks: [traefik-public]
+
+networks:
+  traefik-public:
+    external: true

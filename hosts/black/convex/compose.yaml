@@ -1,0 +1,100 @@
+# One self-hosted Convex deployment (backend only; the dashboard is shared,
+# dashboard.yaml). Instantiated per deployment by hosts/black/convex.nix as
+# project convex-<name>, with a generated --env-file for everything that
+# differs (name, hostnames, ports, data dir, caps) and a secrets file.
+# Based on get-convex/convex-backend self-hosted/docker/docker-compose.yml;
+# runbooks/black-client-data-demo.md has the operations.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  backend:
+    image: ghcr.io/convex/convex-backend:bb31399c8704ceb6c19003936f6e144375b2c3bc@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa
+    restart: unless-stopped
+    logging: *logging
+    # First to go in a host-wide OOM, before anything the host exists for.
+    oom_score_adj: 1000
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    # INSTANCE_SECRET and the S3 key (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).
+    env_file: ${CONVEX_SECRETS_FILE:?}
+    environment:
+      INSTANCE_NAME: ${CONVEX_NAME:?}
+      CONVEX_CLOUD_ORIGIN: https://${CONVEX_CLOUD_HOST:?}
+      CONVEX_SITE_ORIGIN: https://${CONVEX_SITE_HOST:?}
+      # Database: SQLite in the data dir (the image's default). Files,
+      # modules, search indexes, exports and imports: Garage over S3.
+      S3_ENDPOINT_URL: http://garage:3900
+      AWS_REGION: garage
+      AWS_S3_FORCE_PATH_STYLE: "true"
+      AWS_S3_DISABLE_SSE: "true"
+      AWS_S3_DISABLE_CHECKSUMS: "true"
+      S3_STORAGE_FILES_BUCKET: ${CONVEX_NAME:?}-files
+      S3_STORAGE_MODULES_BUCKET: ${CONVEX_NAME:?}-modules
+      S3_STORAGE_SEARCH_BUCKET: ${CONVEX_NAME:?}-search
+      S3_STORAGE_EXPORTS_BUCKET: ${CONVEX_NAME:?}-exports
+      S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET: ${CONVEX_NAME:?}-snapshot-imports
+      # Nothing leaves the host: no usage beacon (self-hosted/advanced/
+      # disabling_logging.md), no metrics endpoint, function logs redacted
+      # in responses to clients.
+      DISABLE_BEACON: "true"
+      DISABLE_METRICS_ENDPOINT: "true"
+      REDACT_LOGS_TO_CLIENT: "true"
+      DOCUMENT_RETENTION_DELAY: "172800"
+      # LLM responses stream through HTTP actions as SSE; the default cuts
+      # every request after 300 s.
+      HTTP_SERVER_TIMEOUT_SECONDS: "1800"
+      # Upstream's compose lowers these to 16; the knobs.rs defaults are 64
+      # for actions. V8 actions include HTTP actions, so each open stream
+      # holds one slot.
+      APPLICATION_MAX_CONCURRENT_QUERIES: "32"
+      APPLICATION_MAX_CONCURRENT_MUTATIONS: "32"
+      APPLICATION_MAX_CONCURRENT_V8_ACTIONS: "64"
+      APPLICATION_MAX_CONCURRENT_NODE_ACTIONS: "32"
+      RUST_LOG: info
+    volumes:
+      - ${CONVEX_DATA_DIR:?}:/convex/data
+    extra_hosts:
+      # E2B's api (3000) and client-proxy (3002) on the same host, for actions.
+      - host.docker.internal:host-gateway
+    ports:
+      # Loopback, for the backup timer and SSH tunnels.
+      - 127.0.0.1:${CONVEX_CLOUD_PORT:?}:3210
+      - 127.0.0.1:${CONVEX_SITE_PORT:?}:3211
+    networks: [default, garage, traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      # API and WebSocket sync (3210).
+      - "traefik.http.routers.${CONVEX_NAME:?}-cloud.rule=Host(`${CONVEX_CLOUD_HOST:?}`)"
+      - "traefik.http.routers.${CONVEX_NAME:?}-cloud.entrypoints=websecure"
+      - "traefik.http.routers.${CONVEX_NAME:?}-cloud.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${CONVEX_NAME:?}-cloud.service=${CONVEX_NAME:?}-cloud"
+      - "traefik.http.services.${CONVEX_NAME:?}-cloud.loadbalancer.server.port=3210"
+      # HTTP actions (3211).
+      - "traefik.http.routers.${CONVEX_NAME:?}-site.rule=Host(`${CONVEX_SITE_HOST:?}`)"
+      - "traefik.http.routers.${CONVEX_NAME:?}-site.entrypoints=websecure"
+      - "traefik.http.routers.${CONVEX_NAME:?}-site.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.${CONVEX_NAME:?}-site.service=${CONVEX_NAME:?}-site"
+      - "traefik.http.services.${CONVEX_NAME:?}-site.loadbalancer.server.port=3211"
+    healthcheck:
+      test: curl -f http://localhost:3210/version
+      interval: 5s
+      start_period: 10s
+    mem_limit: ${CONVEX_MEMORY:?}
+    cpus: ${CONVEX_CPUS:?}
+
+networks:
+  default:
+    driver_opts:
+      # A fixed name, so the host firewall can let Convex networks (and only
+      # them) reach E2B on the host (hosts/black/e2b.nix matches cvx-+).
+      com.docker.network.bridge.name: cvx-${CONVEX_NAME:?}
+  garage:
+    external: true
+  traefik-public:
+    external: true

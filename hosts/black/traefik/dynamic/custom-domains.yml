@@ -1,0 +1,15 @@
+# Custom domains in front of the Convex origins: one router per domain,
+# pointing at the services the Convex containers' labels define. The domain
+# needs an A/AAAA record to black (or a CNAME to the main hostname) before
+# Let's Encrypt can issue its certificate. Traefik watches this directory.
+#
+# http:
+#   routers:
+#     customer-example-site:
+#       rule: Host(`api.customer.example`)
+#       entryPoints: [websecure]
+#       service: convex-site@docker
+#       tls:
+#         certResolver: letsencrypt
+# (No custom domains yet. Traefik rejects an empty `http: {}`, so the file
+# holds only this example until the first one.)
