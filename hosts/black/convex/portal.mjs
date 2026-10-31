@@ -340,6 +340,10 @@ async function readBody(req) {
   return chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
 }
 
+// Absolute: Traefik resolves a relative Location from forwardAuth against the
+// portal's own address.
+const redirect = (res, to) => send(res, 302, {}, { location: new URL(to, origin).href });
+
 const client = (req) => req.headers["x-forwarded-for"]?.split(",")[0].trim() ?? req.socket.remoteAddress;
 
 async function handle(req, res) {
@@ -349,15 +353,14 @@ async function handle(req, res) {
 
   // forwardAuth for every dashboard request.
   if (path === "/_portal/auth") {
-    const forwarded = req.headers["x-forwarded-uri"] ?? "/";
     const topLevel = req.headers["sec-fetch-dest"] === "document";
     if (!session) {
       return topLevel
-        ? send(res, 302, {}, { location: `/_portal/login?next=${encodeURIComponent("/_portal/")}` })
+        ? redirect(res, "/_portal/login")
         : send(res, 401, { error: "sign in at /_portal/login" });
     }
     // Opened directly, the dashboard would ask for a key: show the list instead.
-    return topLevel ? send(res, 302, {}, { location: "/_portal/" }) : send(res, 200, { ok: true, uri: forwarded });
+    return topLevel ? redirect(res, "/_portal/") : send(res, 200, { ok: true });
   }
 
   if (path.startsWith("/_portal/api/")) {
@@ -387,9 +390,9 @@ async function handle(req, res) {
   }
 
   if (req.method !== "GET") return send(res, 405, { error: "method not allowed" });
-  if (path === "/_portal/login") return session ? send(res, 302, {}, { location: "/_portal/" }) : pages.login(res, url);
+  if (path === "/_portal/login") return session ? redirect(res, "/_portal/") : pages.login(res, url);
   if (path === "/_portal/enroll") return pages.enroll(res);
-  if (!session) return send(res, 302, {}, { location: `/_portal/login?next=${encodeURIComponent(path + url.search)}` });
+  if (!session) return redirect(res, `/_portal/login?next=${encodeURIComponent(path + url.search)}`);
   if (path === "/_portal" || path === "/_portal/") return pages.list(res);
 
   const match = path.match(/^\/_portal\/d\/([^/]+)(\/.*)?$/);
