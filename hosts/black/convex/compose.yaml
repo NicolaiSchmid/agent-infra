@@ -92,8 +92,10 @@ networks:
   default:
     driver_opts:
       # A fixed name, so the host firewall can let Convex networks (and only
-      # them) reach E2B on the host (hosts/black/e2b.nix matches cvx-+).
-      com.docker.network.bridge.name: cvx-${CONVEX_NAME:?}
+      # them) reach E2B on the host (hosts/black/e2b.nix matches cvx-+). Named
+      # after the cloud port: interface names stop at 15 characters, too short
+      # for names like modus-gateway-prod.
+      com.docker.network.bridge.name: cvx-${CONVEX_CLOUD_PORT:?}
   garage:
     external: true
   traefik-public:
