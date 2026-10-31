@@ -19,9 +19,9 @@ qemu, quota 3 CPUs, MemoryMax 3G):
 
 | Unit / project | What | Reached at |
 |---|---|---|
-| `traefik` (`hosts/black/traefik/`) | TLS on 80/443, Host-rule routing, ACME | public 80/443; tailnet-only `:443` (Traefik dashboard), `:6791` (Convex dashboard) |
+| `traefik` (`hosts/black/traefik/`) | TLS on 80/443, Host-rule routing, ACME | public 80/443; tailnet-only `:443` (Traefik dashboard); unpublished `:6792` for the Convex dashboard's node |
 | `convex-<name>` (`hosts/black/convex/compose.yaml`, one project per deployment) | Convex backend, SQLite, files in Garage | `https://<name>.convex.modusservice.com` (API, WebSocket), `https://<name>-site.convex.modusservice.com` (HTTP actions); loopback `127.0.0.1:<cloudPort>/<sitePort>` |
-| `convex-dashboard` (`convex/dashboard.yaml`, `convex/portal.mjs`) | one dashboard for all deployments, behind a passkey portal | `https://black.takaya-buri.ts.net:6791` (tailnet only) |
+| `convex-dashboard` (`convex/dashboard.yaml`, `convex/portal.mjs`) | one dashboard for all deployments, behind a passkey portal, on its own tailnet node `convex` | `https://convex.takaya-buri.ts.net` (tailnet only) |
 | `garage` (`hosts/black/garage/`) | single-node S3 (Garage v2.5.0) | docker network `garage` (`http://garage:3900`), `127.0.0.1:3900` (S3), `127.0.0.1:3903` (admin) |
 | `convex-provision` | Garage layout, per-deployment buckets, keys and secrets | oneshot |
 | `convex-<name>-backup.timer` | daily snapshot export into Garage | 03:30 + up to 30 min |
@@ -99,13 +99,26 @@ host.
 
 ## Dashboard
 
-Open `https://black.takaya-buri.ts.net:6791` from the tailnet, sign in with
+Open `https://convex.takaya-buri.ts.net` from the tailnet, sign in with
 a passkey, pick a deployment. The portal (`convex/portal.mjs`) frames the
 dashboard and hands it the deployment URL and admin key, so nobody copies
 keys. The tailnet is not only the admin (atlas and its agents are on it),
 hence the passkey: without a session Traefik's forwardAuth lets no
 dashboard request through, and the admin keys never leave black except into
 a signed-in browser tab. Sessions last 12 hours.
+
+The address is its own tailnet node (a Tailscale container in
+`convex/dashboard.yaml`, state in `/var/lib/client-data/convex/tailscale/`),
+so it stays the same when the stack moves to another machine; the public
+deployment hosts move with DNS. On the node's first start, approve it once:
+
+```bash
+ssh root@black docker logs convex-dashboard-tailscale-1 2>&1 | grep -m1 https://login
+```
+
+Open the URL, then disable key expiry for `convex` in the Tailscale admin
+console. Passkeys belong to the hostname: a new hostname means enrolling
+again.
 
 Add a passkey (the first one, or another device) with a one-time link:
 
@@ -282,19 +295,21 @@ hashes in `e2b.nix` together.
 
 ## Move to a dedicated server
 
-The stack is host-neutral apart from these: `stateDir`, `baseDomain` and
-`tailnetHost` (`client-data.nix`, `convex.nix`), the two `black.env` files,
+The stack is host-neutral apart from these: `stateDir` and `baseDomain`
+(`client-data.nix`, `convex.nix`), the two `black.env` files,
 the hugepage count, and the slice budget. To move:
 
 1. Install NixOS on the new Hetzner server (bare metal: KVM without nesting).
    Add a host under `hosts/<name>/` that imports `client-data.nix` and the
    files next to it (move them to a shared `modules/client-data/`), with its
-   own `stateDir`, `tailnetHost` and a slice sized for a dedicated machine
+   own `stateDir` and a slice sized for a dedicated machine
    (drop the 3 CPU / 3G ceiling, raise `HUGEPAGES` to 2048 or more).
 2. Stop the stack on black (`systemctl stop convex-june-dev convex-june-prod
    convex-dashboard e2b garage traefik`) and copy
    `/var/lib/client-data` with `rsync -aHAX --numeric-ids`. It holds SQLite,
-   Garage, E2B's databases and templates, certificates and secrets.
+   Garage, E2B's databases and templates, certificates, secrets, the
+   portal's passkeys and the `convex` tailnet node's identity, so the
+   dashboard keeps its address and passkeys.
 3. Switch the new host, check it, then point the DNS records at its IP.
    Remove `client-data.nix` from black.
 

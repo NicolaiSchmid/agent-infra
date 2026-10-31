@@ -25,7 +25,9 @@
   # One hostname per origin under this domain, each with its own DNS
   # record in NicolaiSchmid/dns (no wildcard).
   baseDomain = "convex.modusservice.com";
-  tailnetHost = "black.takaya-buri.ts.net";
+  # The dashboard's own tailnet node (convex/dashboard.yaml), not black's
+  # name, so it keeps its address when the stack moves.
+  tailnetHost = "convex.takaya-buri.ts.net";
   deployments = {
     june-dev = {
       cloudPort = 13210;
@@ -64,7 +66,7 @@
   # The portal's mounts, generated: the script, its config, every admin key.
   portalDir = "${stateDir}/convex/portal";
   portalConfig = pkgs.writeText "convex-portal.json" (builtins.toJSON {
-    origin = "https://${tailnetHost}:6791";
+    origin = "https://${tailnetHost}";
     rpId = tailnetHost;
     deployments =
       lib.mapAttrsToList (name: _: {
@@ -87,6 +89,12 @@
         (bind "${portalConfig}" "/app/config.json")
       ]
       ++ lib.mapAttrsToList (name: _: bind (adminKeyFile name) "/keys/${name}") deployments;
+    services.tailscale.volumes = [(bind "${serveConfig}" "/config/serve.json")];
+  });
+  # Tailscale serve: HTTPS on the node, plain HTTP to Traefik.
+  serveConfig = pkgs.writeText "convex-serve.json" (builtins.toJSON {
+    TCP."443".HTTPS = true;
+    Web."\${TS_CERT_DOMAIN}:443".Handlers."/".Proxy = "http://traefik:6792";
   });
   dashboardCompose = "${docker} compose --project-directory ${stateDir}/convex -f ${./convex/dashboard.yaml} -f ${portalCompose}";
 
@@ -101,7 +109,7 @@
       printf '{"hash":"%s","expires":%s}\n' "$hash" "$(( $(date +%s) + 900 ))" > ${portalDir}/enroll.json.tmp
       mv ${portalDir}/enroll.json.tmp ${portalDir}/enroll.json
       echo "Open within 15 minutes, on the device that should hold the passkey:"
-      echo "https://${tailnetHost}:6791/_portal/enroll#$token"
+      echo "https://${tailnetHost}/_portal/enroll#$token"
     '';
   };
 
@@ -227,6 +235,7 @@ in {
   systemd.tmpfiles.rules = [
     "d ${stateDir}/convex 0700 root root -"
     "d ${portalDir} 0700 root root -"
+    "d ${stateDir}/convex/tailscale 0700 root root -"
   ];
 
   environment.systemPackages = [enroll];
@@ -257,6 +266,7 @@ in {
         environment = {
           TAILNET_HOST = tailnetHost;
           PORTAL_STATE_DIR = portalDir;
+          TAILSCALE_STATE_DIR = "${stateDir}/convex/tailscale";
         };
         serviceConfig = {
           Type = "oneshot";

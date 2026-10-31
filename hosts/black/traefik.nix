@@ -6,8 +6,7 @@
   compose = "${docker} compose --project-directory ${stateDir}/traefik -f ${./traefik/compose.yaml} --env-file ${./traefik/black.env}";
 in {
   # Docker's published ports bypass the INPUT chain over IPv4; IPv6 goes
-  # through docker-proxy and needs these. 3210/6791 answer only the tailnet
-  # (tailnet-only middleware), and tailscale0 is trusted anyway.
+  # through docker-proxy and needs these.
   networking.firewall.allowedTCPPorts = [80 443];
 
   systemd.tmpfiles.rules = ["d ${stateDir}/traefik 0700 root root -"];

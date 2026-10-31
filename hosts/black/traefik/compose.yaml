@@ -7,8 +7,9 @@
 #   host, CA in ACME_CA_SERVER (black.env);
 # - a `tailscale` resolver: black's own tailscaled issues the cert for
 #   black.takaya-buri.ts.net, which Let's Encrypt cannot validate;
-# - admin routes (Traefik and Convex dashboards) are allowlisted to the
-#   tailnet instead of basic auth.
+# - the Traefik dashboard is allowlisted to the tailnet instead of basic
+#   auth; the Convex dashboard comes in from its own tailnet node through
+#   the unpublished tailnet-convex entrypoint (convex/dashboard.yaml).
 # Custom domains: one router per domain in dynamic/, see custom-domains.yml.
 name: traefik
 
@@ -28,8 +29,6 @@ services:
       # Public: each Convex deployment's two origins (and custom domains).
       - "80:80"
       - "443:443"
-      # Tailnet-only entrypoint; anything else gets 403 from tailnet-only.
-      - "6791:6791"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       # /run, not the socket file: a file mount goes stale when dockerd restarts.
@@ -61,7 +60,9 @@ services:
       # Entrypoints
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
-      - --entrypoints.tailnet-dashboard.address=:6791
+      # Plain HTTP, not published: only the convex tailnet node's proxy on
+      # traefik-public reaches it (convex/dashboard.yaml).
+      - --entrypoints.tailnet-convex.address=:6792
       # LLM responses stream through Convex HTTP actions for up to 30 min.
       - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=1800s
       - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=1800s
