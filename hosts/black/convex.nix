@@ -12,7 +12,9 @@
 #   derived from the instance secret on first start;
 # - convex-<name>-backup.timer: a daily snapshot export (with file storage)
 #   into the Garage bucket <name>-backups, newest 14 kept.
-# Shared: one dashboard (convex/dashboard.yaml, tailnet-only) and Garage
+# Shared: one dashboard (convex/dashboard.yaml, tailnet-only) behind the
+# portal (convex/portal.mjs: passkey login, deployment list, dashboards with
+# the admin key applied; `convex-portal-enroll` adds a passkey), and Garage
 # (garage.nix).
 {stateDir}: {
   config,
@@ -59,7 +61,49 @@
       CONVEX_CPUS=${d.cpus}
     '';
   compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml} --env-file ${envFile name d}";
-  dashboardCompose = "${docker} compose --project-directory ${stateDir}/convex -f ${./convex/dashboard.yaml}";
+  # The portal's mounts, generated: the script, its config, every admin key.
+  portalDir = "${stateDir}/convex/portal";
+  portalConfig = pkgs.writeText "convex-portal.json" (builtins.toJSON {
+    origin = "https://${tailnetHost}:6791";
+    rpId = tailnetHost;
+    deployments =
+      lib.mapAttrsToList (name: _: {
+        inherit name;
+        url = "https://${name}.${baseDomain}";
+      })
+      deployments;
+  });
+  bind = source: target: {
+    type = "bind";
+    inherit source target;
+    read_only = true;
+    # Fail instead of creating an empty directory when a key file is missing.
+    bind.create_host_path = false;
+  };
+  portalCompose = pkgs.writeText "convex-portal-compose.json" (builtins.toJSON {
+    services.portal.volumes =
+      [
+        (bind "${./convex/portal.mjs}" "/app/portal.mjs")
+        (bind "${portalConfig}" "/app/config.json")
+      ]
+      ++ lib.mapAttrsToList (name: _: bind (adminKeyFile name) "/keys/${name}") deployments;
+  });
+  dashboardCompose = "${docker} compose --project-directory ${stateDir}/convex -f ${./convex/dashboard.yaml} -f ${portalCompose}";
+
+  # A one-time link (15 minutes) to add a passkey to the portal.
+  enroll = pkgs.writeShellApplication {
+    name = "convex-portal-enroll";
+    runtimeInputs = with pkgs; [openssl coreutils];
+    text = ''
+      token=$(openssl rand -hex 32)
+      hash=$(printf %s "$token" | openssl dgst -sha256 -binary | basenc --base64url | tr -d =)
+      umask 077
+      printf '{"hash":"%s","expires":%s}\n' "$hash" "$(( $(date +%s) + 900 ))" > ${portalDir}/enroll.json.tmp
+      mv ${portalDir}/enroll.json.tmp ${portalDir}/enroll.json
+      echo "Open within 15 minutes, on the device that should hold the passkey:"
+      echo "https://${tailnetHost}:6791/_portal/enroll#$token"
+    '';
+  };
 
   # Garage: layout once, then per deployment its buckets, its key with access
   # to only those buckets, and its secrets file. Idempotent.
@@ -180,7 +224,12 @@
     };
   };
 in {
-  systemd.tmpfiles.rules = ["d ${stateDir}/convex 0700 root root -"];
+  systemd.tmpfiles.rules = [
+    "d ${stateDir}/convex 0700 root root -"
+    "d ${portalDir} 0700 root root -"
+  ];
+
+  environment.systemPackages = [enroll];
 
   systemd.services =
     lib.concatMapAttrs deploymentServices deployments
@@ -197,13 +246,18 @@ in {
       };
 
       convex-dashboard = {
-        description = "Convex dashboard for every deployment (tailnet-only)";
+        description = "Convex dashboard and portal for every deployment (tailnet-only)";
         wantedBy = ["multi-user.target"];
-        after = ["docker.service" "traefik.service"];
+        # After the deployments: the portal mounts their admin keys, written
+        # on each one's first start.
+        after = ["docker.service" "traefik.service"] ++ map (name: "convex-${name}.service") (lib.attrNames deployments);
         requires = ["docker.service"];
-        wants = ["traefik.service"];
+        wants = ["traefik.service"] ++ map (name: "convex-${name}.service") (lib.attrNames deployments);
         reloadIfChanged = true;
-        environment.TAILNET_HOST = tailnetHost;
+        environment = {
+          TAILNET_HOST = tailnetHost;
+          PORTAL_STATE_DIR = portalDir;
+        };
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;

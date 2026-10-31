@@ -1,6 +1,9 @@
 # One Convex dashboard for every deployment, tailnet-only through Traefik
-# (https://<tailnet host>:6791). Without NEXT_PUBLIC_DEPLOYMENT_URL it asks
-# for the deployment URL and admin key at login.
+# (https://<tailnet host>:6791), behind the portal (portal.mjs): a passkey
+# login, the deployment list, and each dashboard with its admin key applied.
+# Traefik asks the portal before every dashboard request (forwardAuth).
+# convex.nix adds the portal's mounts (script, config, admin keys) as a
+# second compose file.
 name: convex-dashboard
 
 services:
@@ -26,8 +29,45 @@ services:
       - "traefik.http.routers.convex-dashboard.rule=Host(`${TAILNET_HOST:?}`)"
       - "traefik.http.routers.convex-dashboard.entrypoints=tailnet-dashboard"
       - "traefik.http.routers.convex-dashboard.tls.certresolver=tailscale"
-      - "traefik.http.routers.convex-dashboard.middlewares=tailnet-only@docker"
+      - "traefik.http.routers.convex-dashboard.middlewares=tailnet-only@docker,convex-portal-auth@docker"
       - "traefik.http.services.convex-dashboard.loadbalancer.server.port=6791"
+
+  portal:
+    image: node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+    # A fixed name: Traefik's forwardAuth reaches it by name on traefik-public.
+    container_name: convex-portal
+    restart: unless-stopped
+    command: ["node", "/app/portal.mjs"]
+    # Root in the container only to read the root-owned 0600 admin keys; no
+    # capabilities, nothing writable but its state.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    oom_score_adj: 1000
+    mem_limit: 128m
+    cpus: 0.25
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    environment:
+      PORTAL_CONFIG: /app/config.json
+      PORTAL_STATE_DIR: /state
+    volumes:
+      # Session key, passkeys, the pending enrollment.
+      - ${PORTAL_STATE_DIR:?}:/state
+    networks: [traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.convex-portal.rule=Host(`${TAILNET_HOST:?}`) && PathPrefix(`/_portal`)"
+      - "traefik.http.routers.convex-portal.priority=100"
+      - "traefik.http.routers.convex-portal.entrypoints=tailnet-dashboard"
+      - "traefik.http.routers.convex-portal.tls.certresolver=tailscale"
+      - "traefik.http.routers.convex-portal.middlewares=tailnet-only@docker"
+      - "traefik.http.services.convex-portal.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.convex-portal-auth.forwardauth.address=http://convex-portal:8080/_portal/auth"
 
 networks:
   traefik-public:
