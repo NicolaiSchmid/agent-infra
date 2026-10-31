@@ -3,8 +3,8 @@
 # provider over /run with exposedbydefault=false and the traefik.instance
 # constraint, external traefik-public network, web -> websecure redirect,
 # dashboard as an api@internal router), with three differences:
-# - ACME by HTTP-01 only (no DNS provider token here), staging until the DNS
-#   records exist (ACME_CA_SERVER in black.env);
+# - ACME by HTTP-01 only (no DNS provider token here), one certificate per
+#   host, CA in ACME_CA_SERVER (black.env);
 # - a `tailscale` resolver: black's own tailscaled issues the cert for
 #   black.takaya-buri.ts.net, which Let's Encrypt cannot validate;
 # - admin routes (Traefik and Convex dashboards) are allowlisted to the

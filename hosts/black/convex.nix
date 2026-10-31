@@ -20,8 +20,8 @@
   lib,
   ...
 }: let
-  # One hostname per origin under this domain; a wildcard record
-  # *.<baseDomain> covers every deployment.
+  # One hostname per origin under this domain, each with its own DNS
+  # record in NicolaiSchmid/dns (no wildcard).
   baseDomain = "convex.modusservice.com";
   tailnetHost = "black.takaya-buri.ts.net";
   deployments = {

@@ -42,25 +42,23 @@ Admin routes on Traefik answer 403 outside `100.64.0.0/10` and
 `fd7a:115c:a1e0::/48`; black's firewall refuses the E2B ports other than
 3000/3002 from the tailnet.
 
-## DNS (Nicolai, by hand)
+## DNS
 
-Nothing resolves yet. Create, at the DNS host of `modusservice.com`:
+Each public hostname has its own A and AAAA record in `NicolaiSchmid/dns`
+(`zones/general/modusservice.com.yaml`, DNS-only, no wildcard), since the
+DNS change for the convex hosts (NicolaiSchmid/dns#104) on 2026-10-31:
 
-| Name | Type | Value |
+| Name | A | AAAA |
 |---|---|---|
-| `*.convex.modusservice.com` | A | `65.109.71.108` |
-| `*.convex.modusservice.com` | AAAA | `2a01:4f9:3051:4d41::2` |
+| `june-dev.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `june-dev-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `june-prod.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+| `june-prod-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 
-The wildcard covers every deployment's two hostnames (and future ones). If
-wildcards are unwanted, create the four names from the table above with the
-same A/AAAA values.
-
-Then switch ACME from staging to production: set `ACME_CA_SERVER` in
-`hosts/black/traefik/black.env` to
-`https://acme-v02.api.letsencrypt.org/directory`, switch, and on black
-`rm /var/lib/client-data/traefik/acme.json && systemctl restart traefik`.
-Until then the public hosts serve Traefik's self-signed default certificate;
-check routing with `curl -k --resolve <host>:443:65.109.71.108 https://<host>/version`.
+Traefik uses the Let's Encrypt production CA (`ACME_CA_SERVER` in
+`hosts/black/traefik/black.env`). Create a new hostname's records before
+its router goes live, or HTTP-01 fails and Let's Encrypt's failed-validation
+limit kicks in.
 
 ## Secrets
 
@@ -141,8 +139,8 @@ SDK's routing headers for IP or `localhost` hosts, so
 One entry in `deployments` in `hosts/black/convex.nix` (name, two unused
 loopback ports, memory, CPUs), then switch. `convex-provision` creates its
 buckets, key and secrets file; the unit starts the backend and writes its
-admin key; Traefik picks up its two routers from the labels; the wildcard
-record already covers its hostnames.
+admin key; Traefik picks up its two routers from the labels. Add its two
+hostnames to the DNS repository first (section DNS).
 
 ## Custom domains
 
