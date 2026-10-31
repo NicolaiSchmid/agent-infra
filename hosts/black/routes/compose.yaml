@@ -1,0 +1,46 @@
+# routes-api (routes.nix): the push API for per-project Traefik routes.
+# The image is built by Nix and loaded into Docker by the unit, so it is
+# never pulled. It writes only its state directory and Traefik's dynamic
+# directory, and sees the projects' key hashes, never the keys.
+name: routes
+
+services:
+  api:
+    image: ${ROUTES_IMAGE:?}
+    pull_policy: never
+    restart: unless-stopped
+    user: "${ROUTES_UID:?}:${ROUTES_UID:?}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    oom_score_adj: 1000
+    mem_limit: 64m
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    command: [-config, /config/registry.json, -keys, /keys, -state, /state, -dynamic, /dynamic, -listen, ":8080"]
+    volumes:
+      - ${ROUTES_REGISTRY:?}:/config/registry.json:ro
+      - ${ROUTES_KEYS_DIR:?}:/keys:ro
+      - ${ROUTES_STATE_DIR:?}:/state
+      - ${ROUTES_DYNAMIC_DIR:?}:/dynamic
+    networks: [traefik-public]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.instance=main"
+      - "traefik.docker.network=traefik-public"
+      - "traefik.http.routers.routes-api.rule=Host(`${ROUTES_HOST:?}`)"
+      - "traefik.http.routers.routes-api.entrypoints=websecure"
+      - "traefik.http.routers.routes-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.routes-api.service=routes-api"
+      - "traefik.http.services.routes-api.loadbalancer.server.port=8080"
+    healthcheck:
+      test: [CMD, /bin/routes-api, -healthcheck, "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      start_period: 5s
+
+networks:
+  traefik-public:
+    external: true
