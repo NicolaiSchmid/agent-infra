@@ -21,7 +21,7 @@ qemu, quota 3 CPUs, MemoryMax 3G):
 |---|---|---|
 | `traefik` (`hosts/black/traefik/`) | TLS on 80/443, Host-rule routing, ACME | public 80/443; tailnet-only `:443` (Traefik dashboard), `:6791` (Convex dashboard) |
 | `convex-<name>` (`hosts/black/convex/compose.yaml`, one project per deployment) | Convex backend, SQLite, files in Garage | `https://<name>.convex.modusservice.com` (API, WebSocket), `https://<name>-site.convex.modusservice.com` (HTTP actions); loopback `127.0.0.1:<cloudPort>/<sitePort>` |
-| `convex-dashboard` (`convex/dashboard.yaml`) | one dashboard for all deployments | `https://black.takaya-buri.ts.net:6791` (tailnet only) |
+| `convex-dashboard` (`convex/dashboard.yaml`, `convex/portal.mjs`) | one dashboard for all deployments, behind a passkey portal | `https://black.takaya-buri.ts.net:6791` (tailnet only) |
 | `garage` (`hosts/black/garage/`) | single-node S3 (Garage v2.5.0) | docker network `garage` (`http://garage:3900`), `127.0.0.1:3900` (S3), `127.0.0.1:3903` (admin) |
 | `convex-provision` | Garage layout, per-deployment buckets, keys and secrets | oneshot |
 | `convex-<name>-backup.timer` | daily snapshot export into Garage | 03:30 + up to 30 min |
@@ -70,6 +70,12 @@ directory and move with it). Never print them.
 |---|---|---|
 | `convex-<name>.env` | `INSTANCE_SECRET`, Garage key (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) | `convex-provision` |
 | `convex-<name>-admin-key` | admin key for the CLI and dashboard | `convex-<name>` (first start) |
+
+The portal keeps its own state in `/var/lib/client-data/convex/portal/`:
+the session key (`session-key.json`), the enrolled passkeys' public keys
+(`passkeys.json`) and a pending enrollment (`enroll.json`). Deleting
+`session-key.json` and restarting `convex-dashboard` signs everyone out;
+deleting an entry from `passkeys.json` revokes that passkey.
 | `garage.env` | `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `GARAGE_METRICS_TOKEN` | `garage` |
 | `e2b.env` | `TEAM_API_KEY` (SDK key), `ADMIN_TOKEN`, `SANDBOX_ACCESS_TOKEN_HASH_SEED` | `e2b-secrets` |
 
@@ -91,8 +97,24 @@ Until DNS exists, go through an SSH tunnel instead:
 `https://<name>.convex.modusservice.com`; HTTP actions are on the `-site`
 host.
 
-Dashboard: open `https://black.takaya-buri.ts.net:6791`, enter the
-deployment's cloud origin and its admin key.
+## Dashboard
+
+Open `https://black.takaya-buri.ts.net:6791` from the tailnet, sign in with
+a passkey, pick a deployment. The portal (`convex/portal.mjs`) frames the
+dashboard and hands it the deployment URL and admin key, so nobody copies
+keys. The tailnet is not only the admin (atlas and its agents are on it),
+hence the passkey: without a session Traefik's forwardAuth lets no
+dashboard request through, and the admin keys never leave black except into
+a signed-in browser tab. Sessions last 12 hours.
+
+Add a passkey (the first one, or another device) with a one-time link:
+
+```bash
+ssh root@black convex-portal-enroll
+```
+
+and open the printed link within 15 minutes on the device that should hold
+the passkey. The link is good for one passkey.
 
 ### Calling E2B from Convex
 
@@ -139,7 +161,8 @@ SDK's routing headers for IP or `localhost` hosts, so
 One entry in `deployments` in `hosts/black/convex.nix` (name, two unused
 loopback ports, memory, CPUs), then switch. `convex-provision` creates its
 buckets, key and secrets file; the unit starts the backend and writes its
-admin key; Traefik picks up its two routers from the labels. Add its two
+admin key; Traefik picks up its two routers from the labels; the portal
+lists it after `convex-dashboard` reloads in the same switch. Add its two
 hostnames to the DNS repository first (section DNS).
 
 ## Custom domains
