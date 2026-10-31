@@ -267,6 +267,7 @@ in {
           TAILNET_HOST = tailnetHost;
           PORTAL_STATE_DIR = portalDir;
           TAILSCALE_STATE_DIR = "${stateDir}/convex/tailscale";
+          TAILSCALE_AUTHKEY_FILE = "${secrets}/convex-tailscale.env";
         };
         serviceConfig = {
           Type = "oneshot";

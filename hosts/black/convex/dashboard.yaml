@@ -86,10 +86,16 @@ services:
       # Userspace networking: no tun device or capabilities; serve proxies
       # from tailscaled itself.
       TS_USERSPACE: "true"
-      # No auth key: the first start prints a login URL in its logs
-      # (runbooks/black-client-data-demo.md); a manual `tailscale up` must
-      # not make later starts fail on changed prefs.
+      # The auth key only for the first login; after that the identity
+      # lives in the state dir and the key file can go. Without a key the
+      # container gives a browser login 60 s, then restarts with a new
+      # node key, so it never sticks.
+      TS_AUTH_ONCE: "true"
       TS_EXTRA_ARGS: --reset
+    env_file:
+      # TS_AUTHKEY (runbooks/black-client-data-demo.md, Dashboard).
+      - path: ${TAILSCALE_AUTHKEY_FILE:?}
+        required: false
     volumes:
       # The node's identity; moves with the data dir.
       - ${TAILSCALE_STATE_DIR:?}:/var/lib/tailscale

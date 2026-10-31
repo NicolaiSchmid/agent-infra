@@ -77,6 +77,7 @@ the session key (`session-key.json`), the enrolled passkeys' public keys
 `session-key.json` and restarting `convex-dashboard` signs everyone out;
 deleting an entry from `passkeys.json` revokes that passkey.
 | `garage.env` | `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`, `GARAGE_METRICS_TOKEN` | `garage` |
+| `convex-tailscale.env` | `TS_AUTHKEY` for the `convex` node's first login; delete after | by hand (Dashboard) |
 | `e2b.env` | `TEAM_API_KEY` (SDK key), `ADMIN_TOKEN`, `SANDBOX_ACCESS_TOKEN_HASH_SEED` | `e2b-secrets` |
 
 Each deployment's Garage key can read and write only its own buckets
@@ -110,15 +111,19 @@ a signed-in browser tab. Sessions last 12 hours.
 The address is its own tailnet node (a Tailscale container in
 `convex/dashboard.yaml`, state in `/var/lib/client-data/convex/tailscale/`),
 so it stays the same when the stack moves to another machine; the public
-deployment hosts move with DNS. On the node's first start, approve it once:
+deployment hosts move with DNS. Its first login needs an auth key
+(a browser login times out after 60 s in the container): create a
+one-off, pre-approved key in the Tailscale admin console (Settings, Keys),
+then
 
 ```bash
-ssh root@black docker logs convex-dashboard-tailscale-1 2>&1 | grep -m1 https://login
+ssh root@black 'umask 077; read -rs k; printf "TS_AUTHKEY=%s\n" "$k" > /var/lib/client-data/secrets/convex-tailscale.env; systemctl restart convex-dashboard'
 ```
 
-Open the URL, then disable key expiry for `convex` in the Tailscale admin
-console. Passkeys belong to the hostname: a new hostname means enrolling
-again.
+paste the key (no echo) and press Enter. Once `convex` is online, disable
+its key expiry in the admin console and delete the key file; the identity
+stays in `/var/lib/client-data/convex/tailscale/`. Passkeys belong to the
+hostname: a new hostname means enrolling again.
 
 Add a passkey (the first one, or another device) with a one-time link:
 
