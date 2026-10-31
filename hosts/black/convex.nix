@@ -54,6 +54,20 @@
       memory = "768m";
       cpus = "1";
     };
+    # MODUS itself: contracts, consent and billing (apps/site/convex in the
+    # modus repository). Holds firm contacts, never client data.
+    modus-dev = {
+      cloudPort = 13250;
+      sitePort = 13251;
+      memory = "512m";
+      cpus = "0.5";
+    };
+    modus-prod = {
+      cloudPort = 13260;
+      sitePort = 13261;
+      memory = "768m";
+      cpus = "1";
+    };
   };
 
   docker = "${config.virtualisation.docker.package}/bin/docker";
