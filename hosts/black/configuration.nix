@@ -11,6 +11,7 @@ in {
     ./libvirt.nix
     ./networking.nix
     ./sops.nix
+    ./phone-sbc.nix
     ./client-data.nix
   ];
 

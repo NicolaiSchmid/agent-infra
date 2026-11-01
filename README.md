@@ -158,4 +158,5 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Atlas I/O priorities and build sweep](runbooks/atlas-build-sweep.md)
 - [Client-data stack demo on black (Convex, Garage, E2B, Traefik)](runbooks/black-client-data-demo.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
+- [Phone SBC on black](runbooks/black-phone-sbc.md)
 - [Secrets](secrets/README.md)
