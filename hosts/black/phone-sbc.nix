@@ -1,5 +1,9 @@
 # Persist the synthetic-call spike; carrier ingress awaits an account and certificate.
-{pkgs, ...}: let
+{
+  pkgs,
+  lib,
+  ...
+}: let
   livekitHost = "1t72z3s8t1h.sip.livekit.cloud";
   # Frankfurt SIP frontends verified 2026-10-31. Keep the hostname for TLS/SNI.
   livekitAddresses = ["161.115.161.126" "161.115.161.149"];
@@ -19,19 +23,37 @@ in {
   services.asterisk = {
     enable = true;
     # No sample listeners, CDR/CEL backends, manager API or recording modules.
-    useTheseDefaultConfFiles = [];
+    useTheseDefaultConfFiles = ["acl.conf" "features.conf" "indications.conf" "pjproject.conf" "stasis.conf" "ccss.conf" "udptl.conf"];
     confFiles = {
       "modules.conf" = ''
         [modules]
-        autoload=yes
-        noload=chan_sip.so
-        noload=chan_iax2.so
-        noload=res_pjsip_endpoint_identifier_anonymous.so
-        noload=app_mixmonitor.so
-        noload=app_monitor.so
-        noload=res_hep.so
-        noload=res_hep_pjsip.so
-        noload=res_hep_rtcp.so
+        autoload=no
+        load=res_pjproject.so
+        load=res_sorcery_config.so
+        load=res_sorcery_memory.so
+        load=res_sorcery_astdb.so
+        load=res_sorcery_realtime.so
+        load=res_pjsip.so
+        load=res_pjsip_endpoint_identifier_ip.so
+        load=res_pjsip_pubsub.so
+        load=res_pjsip_session.so
+        load=res_pjsip_sdp_rtp.so
+        load=res_pjsip_nat.so
+        load=res_pjsip_caller_id.so
+        load=res_pjsip_sips_contact.so
+        load=res_pjsip_dtmf_info.so
+        load=res_rtp_asterisk.so
+        require=res_srtp.so
+        require=chan_pjsip.so
+        load=codec_alaw.so
+        load=codec_ulaw.so
+        load=pbx_config.so
+        load=app_dial.so
+        load=app_playback.so
+        load=app_stack.so
+        load=app_verbose.so
+        load=func_channel.so
+        load=format_wav.so
       '';
       "cdr.conf" = ''
         [general]
@@ -72,6 +94,7 @@ in {
         transport=livekit-tls
         aors=livekit
         context=reject-inbound
+        allow_transfer=no
         disallow=all
         allow=alaw,ulaw
         media_encryption=sdes
@@ -91,7 +114,7 @@ in {
         static=yes
         writeprotect=yes
         [reject-inbound]
-        exten => _.,1,Hangup(21)
+        exten => _X!,1,Hangup(21)
         exten => s,1,Hangup(21)
       '';
       "rtp.conf" = ''
@@ -105,6 +128,8 @@ in {
   systemd.services.asterisk = {
     after = ["network-online.target"];
     wants = ["network-online.target"];
+    # The upstream unit starts as root, then Asterisk drops privileges.
+    preStart = lib.mkAfter "chown asterisk:asterisk /run/asterisk";
     serviceConfig = {
       Restart = "on-failure";
       RestartSec = "5s";
