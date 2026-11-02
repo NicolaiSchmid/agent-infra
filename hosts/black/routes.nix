@@ -75,7 +75,8 @@
   reservedHosts =
     [hostname baseDomain "june.${baseDomain}" "june-http.${baseDomain}" "june-dev-http.${baseDomain}"]
     ++ lib.concatMap (name: ["${name}.${baseDomain}" "${name}-site.${baseDomain}"]) (lib.attrNames deployments);
-  registry = pkgs.writeText "routes-registry.json" (builtins.toJSON {inherit projects reservedHosts;});
+  noWildcardDomains = [baseDomain];
+  registry = pkgs.writeText "routes-registry.json" (builtins.toJSON {inherit projects reservedHosts noWildcardDomains;});
   envFile = pkgs.writeText "routes.env" ''
     ROUTES_IMAGE=${image.imageName}:${image.imageTag}
     ROUTES_UID=${toString uid}
@@ -125,7 +126,7 @@
   conflicts = lib.filter (a: lib.any (overlaps a) claims) claims;
   reserved = host:
     lib.any (covers host) reservedHosts
-    || (lib.hasPrefix "*." host && lib.hasSuffix ".${baseDomain}" host);
+    || (lib.hasPrefix "*." host && lib.any (domain: lib.hasSuffix ".${domain}" host) noWildcardDomains);
 in {
   # Expose the exact evaluated registry for an offline activation rehearsal.
   system.build.routesRegistry = registry;

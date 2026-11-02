@@ -15,6 +15,7 @@ export type Project = { hosts: string[]; convex: string[] };
 export type Registry = {
 	projects: Record<string, Project>;
 	reservedHosts: string[];
+	noWildcardDomains: string[];
 };
 export type Table = {
 	routes: {
@@ -49,7 +50,12 @@ export function allows(pattern: string, host: string): boolean {
 	return label.length > 0 && !label.includes(".");
 }
 export function registry(value: unknown): Registry {
-	object(value, ["projects", "reservedHosts"]);
+	object(value, ["projects", "reservedHosts", "noWildcardDomains"]);
+	if (
+		!Array.isArray(value.noWildcardDomains) ||
+		!value.noWildcardDomains.every((h) => typeof h === "string" && hostname.test(h))
+	)
+		throw new Invalid("Expected noWildcardDomains from the deployment registry");
 	if (
 		!Array.isArray(value.reservedHosts) ||
 		!value.reservedHosts.every((h) => typeof h === "string" && hostname.test(h))
@@ -73,10 +79,8 @@ export function registry(value: unknown): Registry {
 			if (claims.some(([other, host]) => other !== id && (allows(host, h) || allows(h, host))))
 				throw new Invalid("Overlapping hostname claims");
 			if (
-				["routes.modusservice.com", "convex.modusservice.com", ...value.reservedHosts].some(
-					(reserved) => allows(h, reserved),
-				) ||
-				(h.startsWith("*.") && h.endsWith(".convex.modusservice.com"))
+				value.reservedHosts.some((reserved) => allows(h, reserved)) ||
+				(h.startsWith("*.") && value.noWildcardDomains.some((domain) => h.endsWith(`.${domain}`)))
 			)
 				throw new Invalid("Reserved hostname");
 			claims.push([id, h]);

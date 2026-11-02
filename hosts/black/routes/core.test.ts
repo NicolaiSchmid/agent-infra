@@ -54,13 +54,15 @@ test("rejects external targets, foreign hosts/deployments, injection, malformed 
 test("registry rejects overlapping wildcard owners and reserved hosts", () => {
 	assert.throws(() =>
 		registry({
-			reservedHosts: [],
+			noWildcardDomains,
+			reservedHosts,
 			projects: { a: p, b: { ...p, hosts: ["x.preview.modusservice.com"] } },
 		}),
 	);
 	assert.throws(() =>
 		registry({
-			reservedHosts: [],
+			noWildcardDomains,
+			reservedHosts,
 			projects: { a: { ...p, hosts: ["*.modusservice.com"] } },
 		}),
 	);
@@ -87,7 +89,7 @@ test("HTTP authentication, replacement, limits, restart and registry revocation"
 	mkdirSync(join(dir, "state"));
 	mkdirSync(join(dir, "dynamic"));
 	const store = new Store(join(dir, "state"), join(dir, "dynamic"));
-	const r = registry({ reservedHosts: [], projects: { gateway: p } });
+	const r = registry({ noWildcardDomains, reservedHosts, projects: { gateway: p } });
 	const s = server(r, { gateway: digest("secret") }, store);
 	await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", resolve));
 	const address = s.address();
@@ -120,10 +122,7 @@ test("HTTP authentication, replacement, limits, restart and registry revocation"
 		store.restore(r);
 		assert.equal(existsSync(join(dir, "dynamic", "routes-removed.yml")), false);
 		assert.equal(readFileSync(file, "utf8"), rendered);
-		store.restore({
-			reservedHosts: [],
-			projects: { gateway: { ...p, hosts: [] } },
-		});
+		store.restore({ noWildcardDomains, reservedHosts, projects: { gateway: { ...p, hosts: [] } } });
 		assert.equal(existsSync(file), false);
 		assert.equal((await put({ routes: [] })).status, 200);
 		assert.equal(existsSync(file), false);
@@ -133,7 +132,10 @@ test("HTTP authentication, replacement, limits, restart and registry revocation"
 	}
 });
 
+const noWildcardDomains = ["convex.modusservice.com"];
 const reservedHosts = [
+	"routes.modusservice.com",
+	"convex.modusservice.com",
 	"june.convex.modusservice.com",
 	"june-http.convex.modusservice.com",
 	"june-dev.convex.modusservice.com",
@@ -153,7 +155,7 @@ const gateway = {
 	convex: ["modus-gateway-prod", "modus-gateway-dev"],
 };
 test("exact gateway aliases preserve reserved namespace and cross-project boundaries", () => {
-	const r = registry({ reservedHosts, projects: { gateway } });
+	const r = registry({ noWildcardDomains, reservedHosts, projects: { gateway } });
 	for (const host of [
 		...reservedHosts,
 		"routes.modusservice.com",
@@ -165,15 +167,17 @@ test("exact gateway aliases preserve reserved namespace and cross-project bounda
 		assert.throws(
 			() =>
 				registry({
+					noWildcardDomains,
 					reservedHosts,
 					projects: { a: { ...gateway, hosts: [host] } },
 				}),
 			host,
 		);
 	}
-	assert.throws(() => registry({ projects: { gateway } }));
+	assert.throws(() => registry({ noWildcardDomains, projects: { gateway } }));
 	assert.throws(() =>
 		registry({
+			noWildcardDomains,
 			reservedHosts,
 			projects: { gateway, other: { ...gateway, hosts: [gateway.hosts[2]] } },
 		}),
@@ -232,7 +236,7 @@ test("alias activation and rollback preserve inference and never touch another p
 			],
 		});
 		store.save("gateway", desired);
-		store.restore(registry({ reservedHosts, projects: { gateway } }));
+		store.restore(registry({ noWildcardDomains, reservedHosts, projects: { gateway } }));
 		assert.deepEqual(store.load("gateway"), desired);
 		store.save("gateway", validate(gateway, saved));
 		assert.deepEqual(store.load("gateway"), current);
