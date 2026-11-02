@@ -12,7 +12,11 @@ import {
 import { join } from "node:path";
 
 export type Project = { hosts: string[]; convex: string[] };
-export type Registry = { projects: Record<string, Project> };
+export type Registry = {
+	projects: Record<string, Project>;
+	reservedHosts: string[];
+	noWildcardDomains: string[];
+};
 export type Table = {
 	routes: {
 		host: string;
@@ -46,7 +50,17 @@ export function allows(pattern: string, host: string): boolean {
 	return label.length > 0 && !label.includes(".");
 }
 export function registry(value: unknown): Registry {
-	object(value, ["projects"]);
+	object(value, ["projects", "reservedHosts", "noWildcardDomains"]);
+	if (
+		!Array.isArray(value.noWildcardDomains) ||
+		!value.noWildcardDomains.every((h) => typeof h === "string" && hostname.test(h))
+	)
+		throw new Invalid("Expected noWildcardDomains from the deployment registry");
+	if (
+		!Array.isArray(value.reservedHosts) ||
+		!value.reservedHosts.every((h) => typeof h === "string" && hostname.test(h))
+	)
+		throw new Invalid("Expected reservedHosts from the deployment registry");
 	object(value.projects, Object.keys(value.projects ?? {}));
 	const claims: [string, string][] = [];
 	if (!Object.keys(value.projects).length) throw new Invalid("No projects");
@@ -65,9 +79,8 @@ export function registry(value: unknown): Registry {
 			if (claims.some(([other, host]) => other !== id && (allows(host, h) || allows(h, host))))
 				throw new Invalid("Overlapping hostname claims");
 			if (
-				allows(h, "routes.modusservice.com") ||
-				h === "convex.modusservice.com" ||
-				h.endsWith(".convex.modusservice.com")
+				value.reservedHosts.some((reserved) => allows(h, reserved)) ||
+				(h.startsWith("*.") && value.noWildcardDomains.some((domain) => h.endsWith(`.${domain}`)))
 			)
 				throw new Invalid("Reserved hostname");
 			claims.push([id, h]);
@@ -107,7 +120,10 @@ export function validate(p: Project, value: unknown): Table {
 		return {
 			host: r.host,
 			...(prefix ? { pathPrefix: prefix } : {}),
-			target: { convex: r.target.convex, origin: r.target.origin as "cloud" | "site" },
+			target: {
+				convex: r.target.convex,
+				origin: r.target.origin as "cloud" | "site",
+			},
 		};
 	});
 	return { routes };
