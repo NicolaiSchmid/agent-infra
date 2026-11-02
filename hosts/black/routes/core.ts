@@ -12,7 +12,10 @@ import {
 import { join } from "node:path";
 
 export type Project = { hosts: string[]; convex: string[] };
-export type Registry = { projects: Record<string, Project>; reservedHosts: string[] };
+export type Registry = {
+	projects: Record<string, Project>;
+	reservedHosts: string[];
+};
 export type Table = {
 	routes: {
 		host: string;
@@ -47,7 +50,10 @@ export function allows(pattern: string, host: string): boolean {
 }
 export function registry(value: unknown): Registry {
 	object(value, ["projects", "reservedHosts"]);
-	if (!Array.isArray(value.reservedHosts) || !value.reservedHosts.every((h) => typeof h === "string" && hostname.test(h)))
+	if (
+		!Array.isArray(value.reservedHosts) ||
+		!value.reservedHosts.every((h) => typeof h === "string" && hostname.test(h))
+	)
 		throw new Invalid("Expected reservedHosts from the deployment registry");
 	object(value.projects, Object.keys(value.projects ?? {}));
 	const claims: [string, string][] = [];
@@ -67,7 +73,9 @@ export function registry(value: unknown): Registry {
 			if (claims.some(([other, host]) => other !== id && (allows(host, h) || allows(h, host))))
 				throw new Invalid("Overlapping hostname claims");
 			if (
-				["routes.modusservice.com", "convex.modusservice.com", ...value.reservedHosts].some((reserved) => allows(h, reserved)) ||
+				["routes.modusservice.com", "convex.modusservice.com", ...value.reservedHosts].some(
+					(reserved) => allows(h, reserved),
+				) ||
 				(h.startsWith("*.") && h.endsWith(".convex.modusservice.com"))
 			)
 				throw new Invalid("Reserved hostname");
@@ -108,7 +116,10 @@ export function validate(p: Project, value: unknown): Table {
 		return {
 			host: r.host,
 			...(prefix ? { pathPrefix: prefix } : {}),
-			target: { convex: r.target.convex, origin: r.target.origin as "cloud" | "site" },
+			target: {
+				convex: r.target.convex,
+				origin: r.target.origin as "cloud" | "site",
+			},
 		};
 	});
 	return { routes };

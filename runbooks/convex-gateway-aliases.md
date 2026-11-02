@@ -40,9 +40,10 @@ The DNS PR's OctoDNS dry-run is the provider-backed diff; merge deploys it.
 Read-only SSH inspection confirmed deployed HTTP-01 settings and Docker
 services: API/WebSocket on container port 3210, HTTP actions on 3211.
 Trusted HTTPS `/version` worked for both existing gateway API hosts over IPv4
-and IPv6. Both WebSockets upgraded and returned Convex `Transition` messages
-with `QueryFailed` for an unauthorised internal query. This proves transport,
-not a successful application subscription. New-host checks await activation.
+and IPv6. Both WebSockets upgraded, then authenticated using each environment's
+admin key locally on black. A read-only `gateway:authorize` subscription for
+a synthetic missing hash returned `QueryUpdated(null)` in both environments.
+No credential or customer data was printed. New-host checks await activation.
 
 Private backups on black are in
 `/var/lib/client-data/backups/convex-routing-936258ad/`: `routes-before.json`,

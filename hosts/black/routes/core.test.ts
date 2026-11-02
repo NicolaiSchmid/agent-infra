@@ -23,7 +23,9 @@ test("rejects external targets, foreign hosts/deployments, injection, malformed 
 		{},
 		{ routes: null },
 		{ routes: Array(65).fill(table.routes[0]) },
-		{ routes: [{ ...table.routes[0], target: { url: "https://example.com" } }] },
+		{
+			routes: [{ ...table.routes[0], target: { url: "https://example.com" } }],
+		},
 		{ routes: [{ ...table.routes[0], host: "x`) || Host(`evil.com" }] },
 		{ routes: [{ ...table.routes[0], pathPrefix: "/x`" }] },
 		{ routes: [{ ...table.routes[0], extra: 1 }] },
@@ -39,17 +41,29 @@ test("rejects external targets, foreign hosts/deployments, injection, malformed 
 			(e: unknown) => e instanceof Invalid && e.status === 403,
 		);
 	assert.doesNotThrow(() =>
-		validate(p, { routes: [{ ...table.routes[0], host: "pr-1.preview.modusservice.com" }] }),
+		validate(p, {
+			routes: [{ ...table.routes[0], host: "pr-1.preview.modusservice.com" }],
+		}),
 	);
 	assert.throws(() =>
-		validate(p, { routes: [{ ...table.routes[0], host: "nested.pr-1.preview.modusservice.com" }] }),
+		validate(p, {
+			routes: [{ ...table.routes[0], host: "nested.pr-1.preview.modusservice.com" }],
+		}),
 	);
 });
 test("registry rejects overlapping wildcard owners and reserved hosts", () => {
 	assert.throws(() =>
-		registry({ reservedHosts: [], projects: { a: p, b: { ...p, hosts: ["x.preview.modusservice.com"] } } }),
+		registry({
+			reservedHosts: [],
+			projects: { a: p, b: { ...p, hosts: ["x.preview.modusservice.com"] } },
+		}),
 	);
-	assert.throws(() => registry({ reservedHosts: [], projects: { a: { ...p, hosts: ["*.modusservice.com"] } } }));
+	assert.throws(() =>
+		registry({
+			reservedHosts: [],
+			projects: { a: { ...p, hosts: ["*.modusservice.com"] } },
+		}),
+	);
 });
 test("renders only Docker Convex services, with specific prefixes taking priority", () => {
 	const t = validate(p, {
@@ -106,7 +120,10 @@ test("HTTP authentication, replacement, limits, restart and registry revocation"
 		store.restore(r);
 		assert.equal(existsSync(join(dir, "dynamic", "routes-removed.yml")), false);
 		assert.equal(readFileSync(file, "utf8"), rendered);
-		store.restore({ reservedHosts: [], projects: { gateway: { ...p, hosts: [] } } });
+		store.restore({
+			reservedHosts: [],
+			projects: { gateway: { ...p, hosts: [] } },
+		});
 		assert.equal(existsSync(file), false);
 		assert.equal((await put({ routes: [] })).status, 200);
 		assert.equal(existsSync(file), false);
@@ -116,46 +133,115 @@ test("HTTP authentication, replacement, limits, restart and registry revocation"
 	}
 });
 
-const reservedHosts = ["june.convex.modusservice.com", "june-http.convex.modusservice.com", "june-dev.convex.modusservice.com", "june-dev-site.convex.modusservice.com", "june-dev-http.convex.modusservice.com", "modus-gateway-prod.convex.modusservice.com", "modus-gateway-prod-site.convex.modusservice.com"];
+const reservedHosts = [
+	"june.convex.modusservice.com",
+	"june-http.convex.modusservice.com",
+	"june-dev.convex.modusservice.com",
+	"june-dev-site.convex.modusservice.com",
+	"june-dev-http.convex.modusservice.com",
+	"modus-gateway-prod.convex.modusservice.com",
+	"modus-gateway-prod-site.convex.modusservice.com",
+];
 const gateway = {
- hosts: ["inference.modusservice.com", "inference-dev.modusservice.com", ...["gateway", "gateway-http", "gateway-dev", "gateway-dev-http"].map(h => `${h}.convex.modusservice.com`)],
- convex: ["modus-gateway-prod", "modus-gateway-dev"],
+	hosts: [
+		"inference.modusservice.com",
+		"inference-dev.modusservice.com",
+		...["gateway", "gateway-http", "gateway-dev", "gateway-dev-http"].map(
+			(h) => `${h}.convex.modusservice.com`,
+		),
+	],
+	convex: ["modus-gateway-prod", "modus-gateway-dev"],
 };
 test("exact gateway aliases preserve reserved namespace and cross-project boundaries", () => {
- const r = registry({ reservedHosts, projects: { gateway } });
- for (const host of [...reservedHosts, "routes.modusservice.com", "convex.modusservice.com", "*.convex.modusservice.com", "*.sub.convex.modusservice.com", "*.modusservice.com"]) {
-  assert.throws(() => registry({ reservedHosts, projects: { a: { ...gateway, hosts: [host] } } }), host);
- }
- assert.throws(() => registry({ projects: { gateway } }));
- assert.throws(() => registry({ reservedHosts, projects: { gateway, other: { ...gateway, hosts: [gateway.hosts[2]] } } }));
- for (const host of ["june-dev.convex.modusservice.com", "future.convex.modusservice.com", "gateway.modusservice.com"]) {
-  assert.throws(() => validate(r.projects.gateway, { routes: [{ host, target: { convex: "modus-gateway-prod", origin: "cloud" } }] }));
- }
- const routes = gateway.hosts.map(host => ({host, target: { convex: host.includes("-dev") ? "modus-gateway-dev" : "modus-gateway-prod", origin: host.startsWith("inference") || host.includes("-http.") ? "site" : "cloud" }}));
- const rendered = JSON.parse(render("gateway", validate(gateway, { routes }))!);
- Object.values(rendered.http.routers).forEach((router: any, i) => {
-  assert.equal(router.service, `${routes[i].target.convex}-${routes[i].target.origin}@docker`);
-  assert.deepEqual(router.tls, {certResolver: "letsencrypt"});
-  assert.deepEqual(router.entryPoints, ["websecure"]);
- });
+	const r = registry({ reservedHosts, projects: { gateway } });
+	for (const host of [
+		...reservedHosts,
+		"routes.modusservice.com",
+		"convex.modusservice.com",
+		"*.convex.modusservice.com",
+		"*.sub.convex.modusservice.com",
+		"*.modusservice.com",
+	]) {
+		assert.throws(
+			() =>
+				registry({
+					reservedHosts,
+					projects: { a: { ...gateway, hosts: [host] } },
+				}),
+			host,
+		);
+	}
+	assert.throws(() => registry({ projects: { gateway } }));
+	assert.throws(() =>
+		registry({
+			reservedHosts,
+			projects: { gateway, other: { ...gateway, hosts: [gateway.hosts[2]] } },
+		}),
+	);
+	for (const host of [
+		"june-dev.convex.modusservice.com",
+		"future.convex.modusservice.com",
+		"gateway.modusservice.com",
+	]) {
+		assert.throws(() =>
+			validate(r.projects.gateway, {
+				routes: [{ host, target: { convex: "modus-gateway-prod", origin: "cloud" } }],
+			}),
+		);
+	}
+	const routes = gateway.hosts.map((host) => ({
+		host,
+		target: {
+			convex: host.includes("-dev") ? "modus-gateway-dev" : "modus-gateway-prod",
+			origin: host.startsWith("inference") || host.includes("-http.") ? "site" : "cloud",
+		},
+	}));
+	const rendered = JSON.parse(render("gateway", validate(gateway, { routes }))!);
+	Object.values(rendered.http.routers).forEach((router: any, i) => {
+		assert.equal(router.service, `${routes[i].target.convex}-${routes[i].target.origin}@docker`);
+		assert.deepEqual(router.tls, { certResolver: "letsencrypt" });
+		assert.deepEqual(router.entryPoints, ["websecure"]);
+	});
 });
 
 test("alias activation and rollback preserve inference and never touch another project", () => {
- const dir = mkdtempSync(join(tmpdir(), "routes-alias-rollback-"));
- mkdirSync(join(dir,"state")); mkdirSync(join(dir,"dynamic"));
- try {
-  const store = new Store(join(dir,"state"),join(dir,"dynamic"));
-  const current = validate(gateway, {routes: gateway.hosts.slice(0,2).map(host => ({host,target:{convex:host.includes("-dev") ? "modus-gateway-dev" : "modus-gateway-prod",origin:"site"}}))});
-  store.save("gateway", current);
-  const saved = store.load("gateway");
-  writeFileSync(join(dir,"dynamic","other.yml"), "unrelated");
-  const desired = validate(gateway, {routes:[...current.routes,{host:gateway.hosts[2],target:{convex:"modus-gateway-prod",origin:"cloud"}}]});
-  store.save("gateway",desired);
-  store.restore(registry({reservedHosts,projects:{gateway}}));
-  assert.deepEqual(store.load("gateway"),desired);
-  store.save("gateway",validate(gateway,saved));
-  assert.deepEqual(store.load("gateway"),current);
-  assert.equal(readFileSync(join(dir,"dynamic","routes-gateway.yml"),"utf8"),render("gateway",current));
-  assert.equal(readFileSync(join(dir,"dynamic","other.yml"),"utf8"),"unrelated");
- } finally {rmSync(dir,{recursive:true,force:true});}
+	const dir = mkdtempSync(join(tmpdir(), "routes-alias-rollback-"));
+	mkdirSync(join(dir, "state"));
+	mkdirSync(join(dir, "dynamic"));
+	try {
+		const store = new Store(join(dir, "state"), join(dir, "dynamic"));
+		const current = validate(gateway, {
+			routes: gateway.hosts.slice(0, 2).map((host) => ({
+				host,
+				target: {
+					convex: host.includes("-dev") ? "modus-gateway-dev" : "modus-gateway-prod",
+					origin: "site",
+				},
+			})),
+		});
+		store.save("gateway", current);
+		const saved = store.load("gateway");
+		writeFileSync(join(dir, "dynamic", "other.yml"), "unrelated");
+		const desired = validate(gateway, {
+			routes: [
+				...current.routes,
+				{
+					host: gateway.hosts[2],
+					target: { convex: "modus-gateway-prod", origin: "cloud" },
+				},
+			],
+		});
+		store.save("gateway", desired);
+		store.restore(registry({ reservedHosts, projects: { gateway } }));
+		assert.deepEqual(store.load("gateway"), desired);
+		store.save("gateway", validate(gateway, saved));
+		assert.deepEqual(store.load("gateway"), current);
+		assert.equal(
+			readFileSync(join(dir, "dynamic", "routes-gateway.yml"), "utf8"),
+			render("gateway", current),
+		);
+		assert.equal(readFileSync(join(dir, "dynamic", "other.yml"), "utf8"), "unrelated");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
