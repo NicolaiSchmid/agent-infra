@@ -1,6 +1,6 @@
 # routes-api on black: each project pushes its own Traefik routing table from
 # its deploy pipeline (PUT https://<hostname>/v1/projects/<project>/routes,
-# routes/main.go), and this file only says what each project may route:
+# routes/server.ts), and this file only says what each project may route:
 # - hosts: hostnames it may claim, exact or "*.<domain>" for any single
 #   label under <domain>; no two projects may claim the same name;
 # - convex: deployments (convex/deployments.nix) it may send traffic to,
@@ -27,7 +27,14 @@
   projects = {
     # NicolaiSchmid/modus, apps/gateway.
     modus-gateway = {
-      hosts = ["inference.modusservice.com" "inference-dev.modusservice.com"];
+      hosts = [
+        "inference.modusservice.com"
+        "inference-dev.modusservice.com"
+        "gateway.convex.modusservice.com"
+        "gateway-http.convex.modusservice.com"
+        "gateway-dev.convex.modusservice.com"
+        "gateway-dev-http.convex.modusservice.com"
+      ];
       convex = ["modus-gateway-dev" "modus-gateway-prod"];
     };
     # NicolaiSchmid/modus, apps/site (its Convex project).
@@ -63,7 +70,13 @@
     config.Entrypoint = ["/bin/routes-api"];
   };
 
-  registry = pkgs.writeText "routes-registry.json" (builtins.toJSON {inherit projects;});
+  # Generated deployment names must never be shadowed by a file-provider router.
+  # June aliases remain reserved while shared June still uses Convex Cloud.
+  reservedHosts =
+    [hostname baseDomain "june.${baseDomain}" "june-http.${baseDomain}" "june-dev-http.${baseDomain}"]
+    ++ lib.concatMap (name: ["${name}.${baseDomain}" "${name}-site.${baseDomain}"]) (lib.attrNames deployments);
+  noWildcardDomains = [baseDomain];
+  registry = pkgs.writeText "routes-registry.json" (builtins.toJSON {inherit projects reservedHosts noWildcardDomains;});
   envFile = pkgs.writeText "routes.env" ''
     ROUTES_IMAGE=${image.imageName}:${image.imageTag}
     ROUTES_UID=${toString uid}
@@ -111,8 +124,13 @@
         lib.hasSuffix suffix host && label != "" && !(lib.hasInfix "." label)));
   overlaps = a: b: a.project != b.project && (covers a.host b.host || covers b.host a.host || a.host == b.host);
   conflicts = lib.filter (a: lib.any (overlaps a) claims) claims;
-  reserved = host: host == hostname || lib.hasSuffix ".${baseDomain}" host || host == baseDomain;
+  reserved = host:
+    lib.any (covers host) reservedHosts
+    || (lib.hasPrefix "*." host && lib.any (domain: lib.hasSuffix ".${domain}" host) noWildcardDomains);
 in {
+  # Expose the exact evaluated registry for an offline activation rehearsal.
+  system.build.routesRegistry = registry;
+
   assertions =
     [
       {
@@ -121,7 +139,7 @@ in {
       }
       {
         assertion = !(lib.any (c: reserved c.host) claims);
-        message = "routes.nix: ${hostname} and the Convex hosts under ${baseDomain} cannot be claimed by a project.";
+        message = "routes.nix: control hosts, generated Convex hosts, June aliases and Convex wildcard claims are reserved.";
       }
       {
         # Traefik's directory belongs to the routes service for these names.
