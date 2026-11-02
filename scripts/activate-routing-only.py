@@ -52,6 +52,7 @@ def main():
         OVERRIDE.unlink(missing_ok=True)
         run('systemctl', 'daemon-reload')
         run('systemctl', 'reload', 'routes')
+        verify_health()
     else:
         assert not OVERRIDE.exists(), 'Already active; use rollback first'
         OVERRIDE.parent.mkdir(parents=True, exist_ok=True)
@@ -67,8 +68,8 @@ def main():
             OVERRIDE.unlink()
             run('systemctl', 'daemon-reload')
             run('systemctl', 'reload', 'routes')
+            verify_health()
             raise
-    verify_health()
     print(args.action + ': routes.service only; system profile remains ' + BASE)
 
 if __name__ == '__main__':
