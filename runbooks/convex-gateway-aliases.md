@@ -53,9 +53,8 @@ into a new timestamped directory immediately before activation.
 
 ## Activation after parent review
 
-1. Merge the infra PR. Build/test the reviewed black revision before a planned
-   `nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra#black` on
-   black. Inspect the service diff first; do not restart agent workloads.
+1. Merge the infra PR after checking its exact head. Use the isolated route
+   service activation below; current main includes undeployed phone work.
    Confirm routes health and unchanged inference. The allowlist alone creates
    no aliases or certificates.
 2. Merge the reviewed DNS PR. Its `DNS Sync` workflow publishes records.
@@ -88,3 +87,41 @@ only the newly added records. Keep existing deployment and inference records.
 Issued certificates can remain; never restore the entire old ACME file over
 newer unrelated renewals. Restore the old route table before rolling back
 the registry: startup disables a table outside the registry.
+
+## Isolated activation on 2026-11-03
+
+Black runs `/nix/store/474sa8dmrkdsj4mrs0aynsjsy6zpv6x2-nixos-system-black-26.05.20260707.0ad6f47`.
+Evaluating the pinned source `dadec0dccd4fb3245f1dfe16d7d84d1456d132dd`
+produces its exact derivation `3m6b9syxbygqd3jwp34zviwrb36dbakv`.
+The deployment branch `deploy/black-routing-only-936258ad`, commit
+`ce6725d69d4fcc66fbb24d7aaf1d2e3680162d9a`, applies only the reviewed
+routing file delta to that source. Its diff contains four files under
+`hosts/black/routes*`; no phone, firewall, host, package or lockfile changes.
+All six route tests pass locally and in the Nix build. Codex CLI review
+found no actionable routing defects.
+
+Build this immutable artifact on black:
+
+```sh
+nix build github:NicolaiSchmid/agent-infra/ce6725d69d4fcc66fbb24d7aaf1d2e3680162d9a#nixosConfigurations.black.config.system.build.toplevel \
+  --out-link /var/lib/client-data/backups/convex-routing-936258ad/routing-only-ce6725d
+```
+
+The result is `/nix/store/8fdcb115q3sx69rfzc1mh4plisgnh58d-nixos-system-black-26.05.20260707.0ad6f47`.
+Its global dry activation still schedules dbus reload and polkit restart,
+although both unit files are byte-identical to the baseline. Do not switch.
+`python3 scripts/activate-routing-only.py dry-run` validates the baseline and limits
+the change to the route unit's command fields. After private backups,
+`apply` installs a persistent systemd control drop-in derived from that
+exact built unit and reloads only routes. It automatically removes the
+drop-in and reloads baseline routes if reload or health verification fails.
+Run `rollback` to rehearse restoration before applying again.
+
+The drop-in is `/etc/systemd/system.control/routes.service.d/90-routing-only-936258ad.conf`.
+The system profile remains at its baseline; keep the build's GC root above.
+This is an explicit service-only deployment, not a global Nix rollout.
+Before a future global rollout, reconcile and remove this override so it
+cannot mask a later routes unit. Map rollback must precede service rollback
+once aliases have been published.
+
+Black has Python at `/nix/store/l9k0anq0z7zz81zcwy035jfwap9ga6rl-python3-3.13.13/bin/python3`; use that interpreter when `python3` is absent from PATH.
