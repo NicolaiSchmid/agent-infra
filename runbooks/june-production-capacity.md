@@ -19,7 +19,15 @@ memory, swap and PID limits.
 
 Build only the `convex-june-prod.service` and `juneprod.slice` unit
 attributes, retain their closures, and install the slice plus a persistent
-production-service drop-in using those immutable paths. For this scoped
+production-service drop-in using those immutable paths. On this NixOS host,
+`/etc/systemd/system` points into the immutable store. Install the full slice
+unit as `/etc/systemd/system.control/juneprod.slice`, which is a persistent
+unit search directory, and the service drop-in below
+`/etc/systemd/system.control/convex-june-prod.service.d/`. Back up absence or
+existing ownership first; do not remount the immutable directory. Run
+`systemd-analyze verify` on the slice, reload systemd, and require its
+`FragmentPath` to resolve to the reviewed full unit before recreating the
+backend. A loaded drop-in alone does not establish the slice limits. For this scoped
 activation, append the generated capacity overlay to the captured live Compose
 command and environment file. Current main also changes the bridge name; do
 not activate that template change here. Compare both resolved configurations
