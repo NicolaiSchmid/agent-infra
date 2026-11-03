@@ -19,9 +19,13 @@ memory, swap and PID limits.
 
 Build only the `convex-june-prod.service` and `juneprod.slice` unit
 attributes, retain their closures, and install the slice plus a persistent
-production-service drop-in using those immutable paths. Preserve any unrelated
+production-service drop-in using those immutable paths. For this scoped
+activation, append the generated capacity overlay to the captured live Compose
+command and environment file. Current main also changes the bridge name; do
+not activate that template change here. Compare both resolved configurations
+and accept only resource fields. Preserve any unrelated
 service override, especially `routes.service`. Recreate only the production
-backend with the generated Compose command. Do not switch the global NixOS
+backend with that resource-only Compose command. Do not switch the global NixOS
 system, change the Docker daemon's default parent, or modify phone services.
 The checked-in Nix definition owns the configuration for the next normal
 system deployment; the scoped override persists across reboots until that
