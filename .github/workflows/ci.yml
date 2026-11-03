@@ -12,5 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v17
       - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - name: Test scoped activation health
+        run: python3 scripts/activate-routing-only.test.py
       - name: Check flake
         run: nix flake check --show-trace

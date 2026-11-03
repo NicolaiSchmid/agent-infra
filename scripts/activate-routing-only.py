@@ -4,6 +4,7 @@ import argparse
 import pathlib
 import subprocess
 import os
+import time
 
 BASE = '/nix/store/474sa8dmrkdsj4mrs0aynsjsy6zpv6x2-nixos-system-black-26.05.20260707.0ad6f47'
 CANDIDATE = '/nix/store/8fdcb115q3sx69rfzc1mh4plisgnh58d-nixos-system-black-26.05.20260707.0ad6f47'
@@ -12,6 +13,19 @@ FIELDS = ('ExecStartPre=', 'ExecStart=', 'ExecReload=', 'ExecStop=')
 
 def run(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+
+def verify_health():
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            result = run('curl', '--connect-timeout', '5', '--max-time', '10', '--fail', '--silent', '--output', '/dev/null', '--write-out', '%{http_code}', 'https://routes.modusservice.com/healthz')
+            if result == '204':
+                return
+        except subprocess.CalledProcessError:
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Routes health did not recover within the discovery window')
+        time.sleep(2)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -38,6 +52,7 @@ def main():
         OVERRIDE.unlink(missing_ok=True)
         run('systemctl', 'daemon-reload')
         run('systemctl', 'reload', 'routes')
+        verify_health()
     else:
         assert not OVERRIDE.exists(), 'Already active; use rollback first'
         OVERRIDE.parent.mkdir(parents=True, exist_ok=True)
@@ -48,11 +63,12 @@ def main():
         try:
             run('systemctl', 'daemon-reload')
             run('systemctl', 'reload', 'routes')
-            assert run('curl', '--connect-timeout', '5', '--max-time', '15', '--fail', '--silent', '--output', '/dev/null', '--write-out', '%{http_code}', 'https://routes.modusservice.com/healthz') == '204'
+            verify_health()
         except BaseException:
             OVERRIDE.unlink()
             run('systemctl', 'daemon-reload')
             run('systemctl', 'reload', 'routes')
+            verify_health()
             raise
     print(args.action + ': routes.service only; system profile remains ' + BASE)
 
