@@ -15,8 +15,8 @@
     june-prod = {
       cloudPort = 13220;
       sitePort = 13221;
-      memory = "1g";
-      cpus = "1.5";
+      memory = (import ./june-prod-capacity.nix).memory;
+      cpus = toString (import ./june-prod-capacity.nix).cpus;
     };
     # The MODUS AI token gateway.
     modus-gateway-dev = {
