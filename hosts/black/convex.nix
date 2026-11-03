@@ -48,7 +48,17 @@
       CONVEX_MEMORY=${d.memory}
       CONVEX_CPUS=${d.cpus}
     '';
-  compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml} --env-file ${envFile name d}";
+  juneCapacity = import ./convex/june-prod-capacity.nix;
+  juneCapacityCompose = pkgs.writeText "june-prod-capacity.json" (builtins.toJSON {
+    services.backend = {
+      cgroup_parent = "${juneCapacity.slice}.slice";
+      mem_limit = juneCapacity.memory;
+      memswap_limit = juneCapacity.memory;
+      cpus = juneCapacity.cpus;
+      pids_limit = juneCapacity.pids;
+    };
+  });
+  compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml}${lib.optionalString (name == "june-prod") " -f ${juneCapacityCompose}"} --env-file ${envFile name d}";
   # The portal's mounts, generated: the script, its config, every admin key.
   portalDir = "${stateDir}/convex/portal";
   portalConfig = pkgs.writeText "convex-portal.json" (builtins.toJSON {
@@ -182,8 +192,8 @@
     "convex-${name}" = {
       description = "Self-hosted Convex ${name} (demo, no client data)";
       wantedBy = ["multi-user.target"];
-      after = ["docker.service" "convex-provision.service" "traefik.service"];
-      requires = ["docker.service"];
+      after = ["docker.service" "convex-provision.service" "traefik.service"] ++ lib.optional (name == "june-prod") "${juneCapacity.slice}.slice";
+      requires = ["docker.service"] ++ lib.optional (name == "june-prod") "${juneCapacity.slice}.slice";
       wants = ["convex-provision.service" "traefik.service"];
       reloadIfChanged = true;
       serviceConfig = {
@@ -222,6 +232,19 @@
     };
   };
 in {
+  systemd.slices.${juneCapacity.slice} = {
+    description = "June production backend only";
+    sliceConfig = {
+      MemoryMax = juneCapacity.memory;
+      MemoryHigh = juneCapacity.memory;
+      MemorySwapMax = "0";
+      CPUQuota = "${toString (juneCapacity.cpus * 100)}%";
+      TasksMax = juneCapacity.pids * 2;
+      CPUWeight = 20;
+      IOWeight = 20;
+    };
+  };
+
   systemd.tmpfiles.rules = [
     "d ${stateDir}/convex 0700 root root -"
     "d ${portalDir} 0700 root root -"
