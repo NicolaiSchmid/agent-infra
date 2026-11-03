@@ -42,8 +42,11 @@
       hosts = [];
       convex = ["modus-dev" "modus-prod"];
     };
-    # June (NicolaiSchmid/nicoolai) joins with its hostnames, convex =
-    # ["june-dev" "june-prod"].
+    # June production target; development and generated hosts stay protected.
+    june = {
+      hosts = ["june.convex.modusservice.com" "june-http.convex.modusservice.com"];
+      convex = ["june-prod"];
+    };
   };
 
   inherit (import ./convex/deployments.nix) baseDomain deployments;
@@ -71,9 +74,9 @@
   };
 
   # Generated deployment names must never be shadowed by a file-provider router.
-  # June aliases remain reserved while shared June still uses Convex Cloud.
+  # June development aliases remain reserved.
   reservedHosts =
-    [hostname baseDomain "june.${baseDomain}" "june-http.${baseDomain}" "june-dev-http.${baseDomain}"]
+    [hostname baseDomain "june-dev-http.${baseDomain}"]
     ++ lib.concatMap (name: ["${name}.${baseDomain}" "${name}-site.${baseDomain}"]) (lib.attrNames deployments);
   noWildcardDomains = [baseDomain];
   registry = pkgs.writeText "routes-registry.json" (builtins.toJSON {inherit projects reservedHosts noWildcardDomains;});
