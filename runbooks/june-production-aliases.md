@@ -42,3 +42,21 @@ both families. Keep clients, origins, environment, webhooks, schedules and
 production code/data unchanged. Future code/data import is a separate step:
 the current 1 GiB / 1.5 CPU service cap is below the successful rehearsal's
 4 GiB / 2 CPU cap and needs capacity assessment before migration.
+
+## Checked operator sequencing
+
+On 2026-11-03 a local DNS lookup returned a cached negative answer, but the
+operator's shell continued to the publisher PR merge. The first check did
+not pass. Public Cloudflare DNS answers, target inertness and fresh snapshots
+were verified while the publication was still queued, before its PUT.
+
+Use `scripts/checked-routing-step.py` to gate any future merge, PUT or workflow
+release on explicit readiness commands. Pass argument arrays, never shell
+command strings; credentials remain in private files or environment variables.
+Each readiness command must itself return nonzero on a failed assertion. For
+example, run the private identity/backup preflight over SSH as `--check`, then
+pass the exact-head `gh api` merge as `--action`. The helper invokes every
+check with `check=True` and reaches the action only after all checks pass.
+Do not rely on a semicolon chain or shell `set -e` across conditional/pipeline
+contexts. The controlled-failure test executes a failed readiness process and
+proves that the mutation marker is never created; the success test pins order.

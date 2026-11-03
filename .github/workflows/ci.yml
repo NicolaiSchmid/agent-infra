@@ -13,6 +13,8 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v17
       - uses: DeterminateSystems/magic-nix-cache-action@v13
       - name: Test scoped activation health
-        run: python3 scripts/activate-routing-only.test.py
+        run: |
+          python3 scripts/activate-routing-only.test.py
+          python3 scripts/checked-routing-step.test.py
       - name: Check flake
         run: nix flake check --show-trace
