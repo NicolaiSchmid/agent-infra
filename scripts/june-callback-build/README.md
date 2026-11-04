@@ -40,3 +40,14 @@ The OCI candidate has no registry publication or package-write permission.
 Inspect its immutable manifest digest, perform isolated ABI/startup/runtime
 acceptance, then arrange a reviewed registry publication and June-only selector.
 A successful build never authorizes activating the old image with new settings.
+
+## Formatter context correction
+
+Upstream's deny-by-default `.dockerignore` omits root `dprint.json`. Preparation
+now includes only that additional root file, verifies its exact upstream
+bb31399 SHA256 `00a63c00cd2d6f5769238389632bfbd6be0b0d234fe54a77d37f365fe6b0ed68`,
+and records config/context hashes in the input manifest. Its checksum-pinned
+Prettier plugin and complete formatter settings remain unchanged. The formatter
+check is retained. This invalidates `COPY . .` and subsequent build layers, not
+the preceding dependency layers if a cache is available. Ephemeral runners do
+not promise cache reuse, so a corrected attempt may repeat the full build.

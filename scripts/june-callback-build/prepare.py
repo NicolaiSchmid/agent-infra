@@ -6,6 +6,12 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
+# This exact upstream config was excluded by upstream's deny-by-default context.
+# Keep its checksum-pinned formatter plugin and all validation settings intact.
+config_hash = hashlib.sha256((root / 'dprint.json').read_bytes()).hexdigest()
+assert config_hash == '00a63c00cd2d6f5769238389632bfbd6be0b0d234fe54a77d37f365fe6b0ed68', 'upstream formatter config drift'
+ignore = root / '.dockerignore'
+ignore.write_text(ignore.read_text() + '\n# Include exact upstream formatter configuration for callback checks.\n!/dprint.json\n')
 p = root / 'Dockerfile.callback'
 s = p.read_text()
 assert s.startswith('# syntax=docker/dockerfile:1-labs\n')
@@ -28,4 +34,6 @@ manifest = root / 'callback-build-inputs.json'
 x = json.loads(manifest.read_text())
 x['dockerfile_sha256'] = hashlib.sha256(s.encode()).hexdigest()
 x['cargo_build_jobs'] = 12
+x['dprint_config_sha256'] = config_hash
+x['dockerignore_sha256'] = hashlib.sha256(ignore.read_bytes()).hexdigest()
 manifest.write_text(json.dumps(x, indent=2) + '\n')
