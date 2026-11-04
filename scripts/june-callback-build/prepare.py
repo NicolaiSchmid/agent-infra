@@ -19,7 +19,7 @@ s = s.replace(needle, needle + '''# Frozen install above checks importer/lock co
 # format-js/lint-js recipes are absent at this source revision; use its actual
 # formatter and filtered TypeScript build, without claiming a missing lint ran.
 RUN scripts/node_modules/.bin/dprint check npm-packages/node-executor/src/syscalls.ts npm-packages/node-executor/src/callbackTransport.ts npm-packages/node-executor/src/callbackTransport.test.ts npm-packages/node-executor/package.json
-RUN just turbo run build --filter=node-executor...
+RUN export PATH="$(dirname "$(mise which uv)"):$PATH" && just turbo run build --filter=node-executor...
 RUN cd npm-packages/node-executor && ../../scripts/node_modules/.bin/pnpm exec vitest run src/callbackTransport.test.ts
 RUN sha256sum npm-packages/node-executor/dist/local.cjs && node --version && cargo --version && rustc --version
 ''')
