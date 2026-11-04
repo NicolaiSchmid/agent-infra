@@ -32,12 +32,17 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends skopeo
+          # Public source image; do not consult runner-owned registry credentials.
+          auth_file="$RUNNER_TEMP/june-empty-registry-auth.json"
+          printf '%s\n' '{"auths":{}}' > "$auth_file"
+          chmod 600 "$auth_file"
+          export REGISTRY_AUTH_FILE="$auth_file"
           skopeo --version > candidate/validation-tool-version.txt
           base=ghcr.io/convex/convex-backend@sha256:1213025415839c3ef68b2874cdf10b6c8dcb806fa934f667c48c3fb0ca09ba18
-          skopeo inspect --raw "docker://$base" > candidate/base-amd64-manifest.json
-          skopeo inspect --config "docker://$base" > candidate/base-amd64-config.json
+          skopeo inspect --authfile "$auth_file" --raw "docker://$base" > candidate/base-amd64-manifest.json
+          skopeo inspect --authfile "$auth_file" --config "docker://$base" > candidate/base-amd64-config.json
           python3 scripts/june-callback-build/verify-candidate.py candidate
-          skopeo copy oci-archive:candidate/june-callback-candidate.tar docker-daemon:june-callback-candidate:verified
+          skopeo copy --authfile "$auth_file" oci-archive:candidate/june-callback-candidate.tar docker-daemon:june-callback-candidate:verified
       - name: Capped offline empty-data ABI and startup
         run: bash scripts/june-callback-build/smoke.sh candidate/smoke
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
