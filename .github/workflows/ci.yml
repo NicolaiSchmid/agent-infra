@@ -34,5 +34,6 @@ jobs:
         run: |
           python3 scripts/activate-routing-only.test.py
           python3 scripts/checked-routing-step.test.py
+          python3 -m unittest discover -s scripts/june-runtime-activation -p 'test_*.py'
       - name: Check flake
         run: nix flake check --show-trace
