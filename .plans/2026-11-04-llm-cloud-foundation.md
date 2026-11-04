@@ -1,5 +1,5 @@
 # LLM cloud foundation
-**Status:** in progress — implementation scoped 2026-11-04
+**Status:** built — implemented in the LLM cloud foundation pull request (#54), 2026-11-04; not deployed
 
 Add a small OpenTofu foundation to the existing NixOS/SOPS repository. This slice
 implements reproducible tools, offline validation, an Azure state/IAM bootstrap,
