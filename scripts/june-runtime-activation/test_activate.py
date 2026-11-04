@@ -1,4 +1,7 @@
 import copy
+import io
+import tarfile
+import hashlib
 import importlib.util
 import json
 import unittest
@@ -29,6 +32,29 @@ class PreservationTests(unittest.TestCase):
     def image_inspect(self, args):
         config = {'Labels': {'base': 'new', 'source': 'pinned'}} if args[-1] == a.TARGET else {'Labels': {'base': 'old'}}
         return json.dumps([{'Config': config}]).encode()
+
+    def test_saved_image_requires_exact_manifest_and_config_bytes(self):
+        config = b'{"runtime":"accepted"}'
+        config_id = 'sha256:' + hashlib.sha256(config).hexdigest()
+        manifest = json.dumps({'config': {'digest': config_id}}).encode()
+        manifest_id = 'sha256:' + hashlib.sha256(manifest).hexdigest()
+        for corrupt, missing in [(False, False), (True, False), (False, True)]:
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode='w') as archive:
+                for digest, content in [(manifest_id, manifest), (config_id, config)]:
+                    if missing and digest == config_id:
+                        continue
+                    payload = b'wrong' if corrupt and digest == config_id else content
+                    member = tarfile.TarInfo('blobs/sha256/' + digest.split(':')[1])
+                    member.size = len(payload)
+                    archive.addfile(member, io.BytesIO(payload))
+            stream.seek(0)
+            with self.subTest(corrupt=corrupt, missing=missing), patch.object(a, 'TARGET_ID', manifest_id), patch.object(a, 'CONFIG_ID', config_id):
+                if corrupt or missing:
+                    with self.assertRaises(RuntimeError):
+                        a.verify_saved_blobs(stream)
+                else:
+                    a.verify_saved_blobs(stream)
 
     def test_dropin_has_real_lines_and_only_scoped_commands(self):
         lines = a.dropin_text().splitlines()

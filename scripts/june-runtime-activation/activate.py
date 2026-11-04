@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 
 D = '/nix/store/3fi6vs0wr2qzmlwxpnlkjdg96fzcpnpw-docker-29.6.0/bin/docker'
 UNIT = 'convex-june-prod.service'
@@ -17,13 +18,14 @@ CAP = Path('/etc/systemd/system.control/convex-june-prod.service.d/90-june-capac
 OLD_DROP = Path('/etc/systemd/system.control/convex-june-prod.service.d/95-june-timeout800-ba2d1bc.conf')
 OLD_OVERLAY = Path('/var/lib/client-data/june-timeout800-ba2d1bc-attempt2/timeout.json')
 TARGET = 'ghcr.io/nicolaischmid/june-convex-backend@sha256:fc6f1b18d8e4ed81b9f77dffe131bc58c333c85557f51501324418fd6a2eb2bb'
-TARGET_ID = 'sha256:3109a3fa67890843b147771d480eea8106af011cae79084b3c330153c35aba5b'
+CONFIG_ID = 'sha256:3109a3fa67890843b147771d480eea8106af011cae79084b3c330153c35aba5b'
 BASE = [D, 'compose', '-p', 'convex-june-prod', '--project-directory', '/var/lib/client-data/convex/june-prod', '-f', '/nix/store/q6xiraiqj9dj7dgqjbm16n1d16fsyy8q-compose.yaml', '--env-file', '/nix/store/mpslx9raprzhqxs5ism0r68aayfmr5v8-convex-june-prod.env', '-f', '/nix/store/8bl5samc3z9qday7mvddkch2cxclfh9i-june-prod-capacity.json']
 BASE += ['-f', str(OLD_OVERLAY)]
 OVERLAY = ROOT / 'runtime.json'
 NEW = BASE + ['-f', str(OVERLAY)]
 UP = ['up', '-d', '--wait', '--no-deps', '--pull', 'never', 'backend']
 HOST_DEFAULTS = {'ContainerIDFile': '', 'AutoRemove': False, 'VolumeDriver': '', 'VolumesFrom': None, 'ConsoleSize': [0, 0], 'CapAdd': None, 'CapDrop': None, 'CgroupnsMode': 'private', 'Dns': None, 'DnsOptions': None, 'DnsSearch': None, 'GroupAdd': None, 'IpcMode': 'private', 'Cgroup': '', 'Links': None, 'PidMode': '', 'Privileged': False, 'PublishAllPorts': False, 'ReadonlyRootfs': False, 'SecurityOpt': None, 'UTSMode': '', 'UsernsMode': '', 'ShmSize': 67108864, 'Runtime': 'runc', 'Isolation': '', 'CpuShares': 0, 'BlkioWeight': 0, 'BlkioWeightDevice': None, 'BlkioDeviceReadBps': None, 'BlkioDeviceWriteBps': None, 'BlkioDeviceReadIOps': None, 'BlkioDeviceWriteIOps': None, 'CpuPeriod': 0, 'CpuQuota': 0, 'CpuRealtimePeriod': 0, 'CpuRealtimeRuntime': 0, 'CpusetCpus': '', 'CpusetMems': '', 'Devices': None, 'DeviceCgroupRules': None, 'DeviceRequests': None, 'MemoryReservation': 0, 'MemorySwappiness': None, 'OomKillDisable': None, 'Ulimits': None, 'CpuCount': 0, 'CpuPercent': 0, 'IOMaximumIOps': 0, 'IOMaximumBandwidth': 0, 'MaskedPaths': ['/proc/acpi', '/proc/asound', '/proc/interrupts', '/proc/kcore', '/proc/keys', '/proc/latency_stats', '/proc/sched_debug', '/proc/scsi', '/proc/timer_list', '/proc/timer_stats', '/sys/devices/virtual/powercap', '/sys/firmware'], 'ReadonlyPaths': ['/proc/bus', '/proc/fs', '/proc/irq', '/proc/sys', '/proc/sysrq-trigger']}
+TARGET_ID = TARGET.split('@')[1]
 EXPECTED_ID = 'e1eaf98ce2d55284d058cf914a3c08f22324d13cf74e29518f32a7bdbf60a263'
 
 def require(condition, message):
@@ -143,6 +145,38 @@ def proposed(s):
     require(config(BASE + ['-f', '-'], overlay) == expected, 'resolved configuration differs beyond image and two timeouts')
     return overlay, expected
 
+def verify_saved_blobs(stream):
+    expected = {TARGET_ID.split(':')[1], CONFIG_ID.split(':')[1]}
+    found = set()
+    with tarfile.open(fileobj=stream, mode='r|') as archive:
+        for member in archive:
+            digest = member.name.removeprefix('blobs/sha256/')
+            if member.name == 'blobs/sha256/' + digest and digest in expected:
+                require(member.isfile() and member.size < 1024 * 1024, 'invalid identity blob')
+                raw = archive.extractfile(member).read()
+                require(hashlib.sha256(raw).hexdigest() == digest, 'local image blob digest mismatch')
+                if digest == TARGET_ID.split(':')[1]:
+                    require(json.loads(raw)['config']['digest'] == CONFIG_ID, 'manifest config mismatch')
+                found.add(digest)
+    require(found == expected, 'local image identity blobs absent')
+
+
+def verify_local_image(candidate):
+    # Black Docker29/containerd identifies images by manifest, not config ID.
+    require(candidate['Id'] == TARGET_ID, 'candidate manifest ID mismatch')
+    require(candidate.get('Descriptor', {}).get('digest') == TARGET_ID, 'candidate descriptor mismatch')
+    require(TARGET in candidate['RepoDigests'], 'candidate repository digest mismatch')
+    process = subprocess.Popen([D, 'image', 'save', TARGET], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        verify_saved_blobs(process.stdout)
+        require(process.wait() == 0, 'local image save failed')
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
 def preflight():
     require(not DROP.exists() and not ROOT.exists(), 'existing activation artifacts')
     s = snapshot()
@@ -157,7 +191,7 @@ def preflight():
     reconcile(s)
     candidate = json.loads(run([D, 'image', 'inspect', TARGET]))[0]
     original = json.loads(run([D, 'image', 'inspect', s['config']['services']['backend']['image']]))[0]
-    require(candidate['Id'] == TARGET_ID, 'candidate config ID mismatch')
+    verify_local_image(candidate)
     require({k:v for k,v in candidate['Config'].items() if k != 'Labels'} == {k:v for k,v in original['Config'].items() if k != 'Labels'}, 'candidate image defaults differ')
     overlay, expected = proposed(s)
     return s, overlay, expected

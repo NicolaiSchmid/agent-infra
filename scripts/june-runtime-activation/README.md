@@ -64,3 +64,10 @@ b9e7e9cbeac9bffc4fffc8408a73b3fabff83cc1/run41885580642; isolated acceptance
 only the preserved manifest above. Version endpoint `unknown` is not provenance.
 Rollback reference remains original
 `ghcr.io/convex/convex-backend:bb31399c8704ceb6c19003936f6e144375b2c3bc@sha256:207cf95def42f01614b6e3af0af5c20d0dcaa5ff2adf258ee7bc9555576644fa`.
+
+Black uses Docker29's containerd snapshotter: image inspect Id and Descriptor
+identify the manifest digest, unlike the validation runner's config-based ID.
+Preflight requires exact manifest Id/Descriptor/RepoDigest and streams Docker's
+local OCI save to hash both manifest and config blobs, requiring the manifest's
+config reference to equal the independently accepted config digest. No image
+identity guard is skipped. This is a read-only local export, not a rebuild.
