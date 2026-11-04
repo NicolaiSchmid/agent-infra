@@ -51,8 +51,11 @@
   juneCapacity = import ./convex/june-prod-capacity.nix;
   juneCapacityCompose = pkgs.writeText "june-prod-capacity.json" (builtins.toJSON {
     services.backend = {
-      # Instance-wide Node action limit; activate after the deployed default-605 control.
-      environment.NODE_ACTION_USER_TIMEOUT_SECS = "800";
+      image = import ./convex/june-prod-image.nix;
+      # User ceiling 1800s; local executor has another 5s of system overhead.
+      environment.NODE_ACTION_USER_TIMEOUT_SECS = "1800";
+      # Keep the HTTP request envelope above the 1805s executor deadline.
+      environment.HTTP_SERVER_TIMEOUT_SECONDS = "2100";
       cgroup_parent = "${juneCapacity.slice}.slice";
       mem_limit = juneCapacity.memory;
       memswap_limit = juneCapacity.memory;

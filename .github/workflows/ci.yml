@@ -6,6 +6,22 @@ on:
     branches: [main]
 
 jobs:
+  convex-callback-patch:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+          cache: npm
+          cache-dependency-path: patches/convex-callback-headers/package-lock.json
+      - name: Test pinned callback transport patch
+        working-directory: patches/convex-callback-headers
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+
   nix:
     # Atlas includes large tool bundles; use the organization's Linux runner pool.
     runs-on: ubicloud-standard-8

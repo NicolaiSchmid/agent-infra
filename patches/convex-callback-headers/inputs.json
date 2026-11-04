@@ -1,0 +1,6 @@
+{
+  "npm-packages/node-executor/src/syscalls.ts": "e8c3b9d8dfec72c40c1597a48dbe508f92e64af45df73192a5bfefd5966482f9",
+  "npm-packages/node-executor/src/convex.ts": "e86f0600338b033f207e3d5ce9261ab0d79fdbc75b1fcfceb296e7625a686b27",
+  "npm-packages/node-executor/package.json": "2cfc3014534ad75a781932e9ac986661087ccc7f1290f373e764899c244ec4e7",
+  "npm-packages/pnpm-lock.yaml": "7dd1bf143a08940c3eb8040300097b29dc925eb4b3d4898d6d9d6a6d901a323d"
+}

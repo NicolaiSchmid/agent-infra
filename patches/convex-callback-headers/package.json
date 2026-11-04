@@ -1,0 +1,16 @@
+{
+  "name": "convex-callback-patch-check",
+  "private": true,
+  "scripts": {
+    "test": "python3 prepare-test.py && vitest run .fixture/npm-packages/node-executor/src/callbackTransport.test.ts"
+  },
+  "devDependencies": {
+    "convex": "1.31.7",
+    "jose": "5.10.0",
+    "uuid": "14.0.0",
+    "zod": "3.25.76",
+    "undici": "7.29.1",
+    "vitest": "4.1.0",
+    "prettier": "3.6.2"
+  }
+}
