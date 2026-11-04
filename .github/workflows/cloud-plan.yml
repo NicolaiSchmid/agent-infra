@@ -1,0 +1,54 @@
+name: Azure cloud plan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llm-azure-account-state
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    # The environment must restrict deployment branches to reviewed main.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: llm-cloud-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ARM_USE_OIDC: 'true'
+      ARM_CLIENT_ID: ${{ vars.AZURE_PLAN_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      BACKEND_CONFIG: ${{ vars.AZURE_BACKEND_CONFIG }}
+      ACCOUNT_CONFIG: ${{ vars.AZURE_ACCOUNT_CONFIG }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+      - name: Check configuration and plan privately
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${ARM_CLIENT_ID:?Configure the plan identity}"
+          : "${ARM_TENANT_ID:?Configure the tenant}"
+          : "${ARM_SUBSCRIPTION_ID:?Configure the subscription}"
+          : "${BACKEND_CONFIG:?Configure backend HCL}"
+          : "${ACCOUNT_CONFIG:?Configure reviewed account JSON}"
+          printf '%s' "$BACKEND_CONFIG" > cloud/llm/azure/ci.tfbackend
+          printf '%s' "$ACCOUNT_CONFIG" > cloud/llm/azure/ci.tfvars.json
+          trap 'rm -f cloud/llm/azure/ci.tfbackend cloud/llm/azure/ci.tfvars.json "$RUNNER_TEMP/llm-plan.log"' EXIT
+          nix develop .#cloud --command tofu -chdir=cloud/llm/azure init -input=false -lockfile=readonly -backend-config=ci.tfbackend >/dev/null
+          # Do not expose account configuration/state in public logs or artifacts.
+          result=0
+          nix develop .#cloud --command tofu -chdir=cloud/llm/azure plan -input=false -detailed-exitcode -var-file=ci.tfvars.json > "$RUNNER_TEMP/llm-plan.log" 2>&1 || result=$?
+          case "$result" in
+            0) echo 'No cloud changes detected.' >> "$GITHUB_STEP_SUMMARY" ;;
+            2) echo 'Import or drift detected. Run a private operator plan for details; this workflow never applies.' >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo 'Plan failed. Reproduce locally with authorized credentials; output is withheld to protect state.' >&2; exit 1 ;;
+          esac

@@ -1,0 +1,7 @@
+subscription_id             = "<subscription-id>"
+location                    = "<state-region>"
+resource_group_name         = "<state-resource-group>"
+storage_account_name        = "<globally-unique-storage-name>"
+github_repository           = "NicolaiSchmid/agent-infra"
+github_environment          = "llm-cloud-plan"
+inference_resource_group_id = "/subscriptions/<subscription-id>/resourceGroups/<existing-group>"

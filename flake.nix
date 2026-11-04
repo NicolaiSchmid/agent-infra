@@ -227,6 +227,14 @@
       program = "${self.packages.${system}.install-atlas}/bin/install-atlas";
     };
 
+    devShells = forFormatterSystems (shellSystem: let
+      cloudPkgs = nixpkgs.legacyPackages.${shellSystem};
+    in {
+      cloud = cloudPkgs.mkShell {
+        packages = with cloudPkgs; [opentofu azure-cli sops age python3];
+      };
+    });
+
     formatter = forFormatterSystems (fmtSystem: nixpkgs.legacyPackages.${fmtSystem}.alejandra);
   };
 }

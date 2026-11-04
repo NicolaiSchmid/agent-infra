@@ -54,6 +54,7 @@ GitHub-hosted macOS image otherwise.
 - `hosts/black/` - bare-metal host, disks, libvirt, Atlas VM definition, network forwarding
 - `hosts/atlas/` - agent VM, state mounts, Tailscale nodes, T3/Hermes overrides
 - `hosts/forge/` - macOS build host, T3 Code, and macOS runner foundations
+- `cloud/llm/` - OpenTofu cloud state bootstrap and existing Azure inference account import
 - `modules/keys.nix` - public SSH keys
 - `secrets/` - SOPS notes and encrypted runtime secrets
 - `runbooks/` - bootstrap and migration procedures
@@ -159,4 +160,5 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Client-data stack demo on black (Convex, Garage, E2B, Traefik)](runbooks/black-client-data-demo.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Phone SBC on black](runbooks/black-phone-sbc.md)
+- [LLM upstreams: cloud state, import and credential delivery](runbooks/llm-upstreams.md)
 - [Secrets](secrets/README.md)
