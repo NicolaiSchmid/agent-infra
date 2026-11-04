@@ -6,6 +6,7 @@ activation is included. `withdrawal-worker.mjs` is ported from June PR #979 comm
 
 - [Guarded activation and rollback](withdrawal-activation.md)
 - [Isolated protected-origin preflight](preflight.md)
+- [Canonical initial multipart upload and config audit](upload.md)
 - [Exact operation inputs](withdrawal-operations.json)
 - [Sole live readiness ledger / PR](https://github.com/NicolaiSchmid/june/pull/979)
 
