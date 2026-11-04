@@ -1,0 +1,2 @@
+# Unified diff context lines intentionally contain a leading space.
+patches/convex-callback-headers/fix.patch -whitespace

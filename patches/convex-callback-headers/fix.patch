@@ -1,0 +1,268 @@
+--- a/npm-packages/node-executor/src/syscalls.ts
++++ b/npm-packages/node-executor/src/syscalls.ts
+@@ -1,4 +1,5 @@
+ import { randomUUID } from "crypto";
++import { callbackDispatcher } from "./callbackTransport";
+ import { decodeJwt } from "jose";
+ import { z } from "zod";
+ 
+@@ -331,7 +332,14 @@
+     for (;;) {
+       attempt += 1;
+       try {
+-        response = await fetch(url, { body, method: "POST", headers, signal });
++        const init = {
++          body,
++          method: "POST",
++          headers,
++          signal,
++          dispatcher: callbackDispatcher,
++        };
++        response = await fetch(url, init);
+       } catch (e) {
+         // If the owning action has already settled, this is a dangling call.
+         // Never settle so its failure can't be misattributed to a later,
+--- a/npm-packages/node-executor/package.json
++++ b/npm-packages/node-executor/package.json
+@@ -17,6 +17,7 @@
+     "convex": "workspace:*",
+     "express": "^5.0.0",
+     "jose": "^5.10.0",
++    "undici": "7.29.1",
+     "uuid": "^14.0.0"
+   },
+   "devDependencies": {
+@@ -34,7 +35,6 @@
+     "stripe": "^19.0.0",
+     "twilio": "^5.0.0",
+     "typescript": "~5.0.3",
+-    "undici": "7.29.1",
+     "vitest": "^4.1.0",
+     "zod": "^3.24.0",
+     "@commander-js/extra-typings": "^14.0.0"
+--- a/npm-packages/pnpm-lock.yaml
++++ b/npm-packages/pnpm-lock.yaml
+@@ -3264,6 +3264,9 @@
+       jose:
+         specifier: ^5.10.0
+         version: 5.10.0
++      undici:
++        specifier: 7.29.1
++        version: 7.29.1
+       uuid:
+         specifier: ^14.0.0
+         version: 14.0.0
+@@ -3313,9 +3316,6 @@
+       typescript:
+         specifier: ~5.0.3
+         version: 5.0.4
+-      undici:
+-        specifier: 7.29.1
+-        version: 7.29.1
+       vitest:
+         specifier: ^4.1.12
+         version: 4.1.12(@edge-runtime/vm@5.0.0)(@opentelemetry/api@1.9.1)(@types/node@20.19.25)(@vitest/browser-playwright@4.1.12)(happy-dom@20.10.6(bufferutil@4.0.9))(jsdom@28.1.0(supports-color@10.2.2))(vite@6.4.4(@types/node@20.19.25)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.94.0)(terser@5.44.1)(tsx@4.21.0)(yaml@2.9.0))
+--- /dev/null
++++ b/npm-packages/node-executor/src/callbackTransport.ts
+@@ -0,0 +1,10 @@
++import { Agent } from "undici";
++
++// Only internal callbacks use this dispatcher. Their owning action's existing
++// AbortSignal bounds their lifetime; a separate 300s headers deadline must not
++// cut off a nested action. Body and connection deadlines retain Undici defaults.
++export function createCallbackDispatcher(options: Agent.Options = {}): Agent {
++  return new Agent({ ...options, headersTimeout: 0 });
++}
++
++export const callbackDispatcher = createCallbackDispatcher();
+--- /dev/null
++++ b/npm-packages/node-executor/src/callbackTransport.test.ts
+@@ -0,0 +1,188 @@
++import { afterEach, describe, expect, it } from "vitest";
++import http from "node:http";
++import { once } from "node:events";
++import { Agent } from "undici";
++import { z } from "zod";
++import { createCallbackDispatcher } from "./callbackTransport";
++import { SyscallsImpl } from "./syscalls";
++
++const cleanup: Array<() => Promise<unknown>> = [];
++afterEach(async () => {
++  await Promise.all(cleanup.splice(0).map((f) => f()));
++});
++
++async function server(handler: http.RequestListener) {
++  const s = http.createServer(handler);
++  s.listen(0, "127.0.0.1");
++  await once(s, "listening");
++  cleanup.push(async () => {
++    s.closeAllConnections();
++    await new Promise<void>((resolve) => s.close(() => resolve()));
++  });
++  return `http://127.0.0.1:${(s.address() as import("node:net").AddressInfo).port}`;
++}
++function dispatcher(options: Agent.Options = {}) {
++  const agent = createCallbackDispatcher(options);
++  cleanup.push(() => agent.destroy());
++  return agent;
++}
++function callback(url: string) {
++  return new SyscallsImpl(
++    { canonicalizedPath: "test.js" },
++    "test-execution",
++    url,
++    "test-token",
++    null,
++    null,
++    {} as any,
++    null,
++    {} as any,
++    0,
++  );
++}
++function invoke(s: SyscallsImpl) {
++  return s.syscallAction(
++    JSON.stringify({
++      requestId: "test-execution",
++      version: "1.0.0",
++      name: "test:child",
++      args: {},
++    }),
++  );
++}
++
++describe("internal callback transport", () => {
++  it("accepts delayed headers beyond an accelerated default deadline", async () => {
++    const url = await server((_req, res) => {
++      const timer = setTimeout(
++        () => res.end(JSON.stringify({ status: "success", value: "ok" })),
++        1500,
++      );
++      res.on("close", () => clearTimeout(timer));
++    });
++    // Undici checks its timers on a coarse tick. 20ms versus 1500ms avoids a
++    // real 300s test while demonstrating the same headers-timeout failure.
++    const baseline = new Agent({ headersTimeout: 20 });
++    cleanup.push(() => baseline.destroy());
++    await expect(
++      fetch(url, { dispatcher: baseline } as RequestInit),
++    ).rejects.toMatchObject({
++      cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
++    });
++    const agent = dispatcher({ headersTimeout: 20 });
++    const response = await fetch(url, { dispatcher: agent } as RequestInit);
++    expect(await response.json()).toEqual({ status: "success", value: "ok" });
++    const s = callback(url);
++    expect(await invoke(s)).toBe("ok");
++    s.dispose();
++  }, 10000);
++
++  it("keeps body deadlines", async () => {
++    const url = await server((_req, res) => {
++      res.writeHead(200);
++      res.flushHeaders();
++      res.write("first");
++    });
++    const response = await fetch(url, {
++      dispatcher: dispatcher({ bodyTimeout: 20 }),
++    } as RequestInit);
++    await expect(response.text()).rejects.toMatchObject({
++      cause: { code: "UND_ERR_BODY_TIMEOUT" },
++    });
++  }, 10000);
++
++  it("keeps the connector deadline", async () => {
++    // A local connector that never completes avoids unreliable external IPs.
++    // Exercise Undici's real timed connector with a TCP server that never
++    // completes TLS; no outside network or backend is involved.
++    const net = await import("node:net");
++    const sockets = new Set<import("node:net").Socket>();
++    const s = net.createServer((socket) => {
++      sockets.add(socket);
++      socket.on("close", () => sockets.delete(socket));
++    });
++    s.listen(0, "127.0.0.1");
++    await once(s, "listening");
++    cleanup.push(async () => {
++      for (const socket of sockets) socket.destroy();
++      await new Promise<void>((r) => s.close(() => r()));
++    });
++    const url = `https://127.0.0.1:${(s.address() as import("node:net").AddressInfo).port}`;
++    await expect(
++      fetch(url, {
++        dispatcher: dispatcher({ connect: { timeout: 20 } }),
++      } as RequestInit),
++    ).rejects.toMatchObject({ cause: { code: "UND_ERR_CONNECT_TIMEOUT" } });
++  }, 10000);
++
++  it("preserves the caller's abort signal", async () => {
++    let received!: () => void;
++    const started = new Promise<void>((r) => {
++      received = r;
++    });
++    const url = await server(() => received());
++    const controller = new AbortController();
++    const result = fetch(url, {
++      dispatcher: dispatcher(),
++      signal: controller.signal,
++    } as RequestInit);
++    const rejected = expect(result).rejects.toMatchObject({
++      name: "AbortError",
++    });
++    await started;
++    controller.abort();
++    await rejected;
++  });
++
++  it("dispose cancels an in-flight callback without settling into a later action", async () => {
++    let received!: () => void, disconnected!: () => void;
++    const started = new Promise<void>((r) => {
++      received = r;
++    });
++    const closed = new Promise<void>((r) => {
++      disconnected = r;
++    });
++    const url = await server((req) => {
++      req.socket.on("close", disconnected);
++      received();
++    });
++    const s = callback(url);
++    let settled = false;
++    void s
++      .actionCallback({
++        version: "1",
++        body: {},
++        path: "/api/actions/action",
++        operationName: "action",
++        responseValidator: z.any(),
++        retryTransient: false,
++      })
++      .finally(() => {
++        settled = true;
++      });
++    await started;
++    s.dispose();
++    await closed;
++    expect(s.abortController.signal.aborted).toBe(true);
++    expect(settled).toBe(false);
++  });
++
++  it.each(["disconnect", "503"])(
++    "never replays an action after %s",
++    async (failure) => {
++      let requests = 0;
++      const url = await server((req, res) => {
++        requests++;
++        if (failure === "disconnect") req.socket.destroy();
++        else {
++          res.statusCode = 503;
++          res.end("unavailable");
++        }
++      });
++      const s = callback(url);
++      await expect(invoke(s)).rejects.toThrow();
++      expect(requests).toBe(1);
++      s.dispose();
++    },
++  );
++});
