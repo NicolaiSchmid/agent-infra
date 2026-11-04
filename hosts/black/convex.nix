@@ -51,6 +51,8 @@
   juneCapacity = import ./convex/june-prod-capacity.nix;
   juneCapacityCompose = pkgs.writeText "june-prod-capacity.json" (builtins.toJSON {
     services.backend = {
+      # Instance-wide Node action limit; activate after the deployed default-605 control.
+      environment.NODE_ACTION_USER_TIMEOUT_SECS = "800";
       cgroup_parent = "${juneCapacity.slice}.slice";
       mem_limit = juneCapacity.memory;
       memswap_limit = juneCapacity.memory;
