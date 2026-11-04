@@ -44,7 +44,7 @@
     };
     # June production target; development and generated hosts stay protected.
     june = {
-      hosts = ["june.convex.modusservice.com" "june-http.convex.modusservice.com"];
+      hosts = ["june.convex.modusservice.com" "june-http.convex.modusservice.com" "apis.junepartner.com"];
       convex = ["june-prod"];
     };
   };
