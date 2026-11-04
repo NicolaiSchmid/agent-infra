@@ -3,7 +3,7 @@ import test from 'node:test';
 import { handleProbe, ORIGIN } from './preflight-worker.mjs';
 const env = { VERCEL_AUTOMATION_BYPASS_SECRET: 'synthetic-test-only' };
 const target = 'https://ingress-preflight.dearjune.ai/__june_ingress_probe';
-for (const [url, method] of [[target,'POST'],[target,'OPTIONS'],[target+'/','GET'],[target+'?x=1','GET'],[target.replace('ingress-preflight','www'),'GET'],[target.replace('https:','http:'),'GET'],[target.replace('/__june_ingress_probe','/june/git'),'GET']]) {
+for (const [url, method] of [[target,'POST'],[target,'OPTIONS'],[target+'/','GET'],[target+'?x=1','GET'],[target+'?','GET'],[target.replace('ingress-preflight','www'),'GET'],[target.replace('https:','http:'),'GET'],[target.replace('/__june_ingress_probe','/june/git'),'GET']]) {
   test(`probe denies ${method} ${url} before fetch/body`, async () => {
     const req = new Request(url, {method, ...(['GET','HEAD'].includes(method)?{}:{body:'synthetic'})});
     const response=await handleProbe(req,env,()=>{throw new Error('must not fetch');});

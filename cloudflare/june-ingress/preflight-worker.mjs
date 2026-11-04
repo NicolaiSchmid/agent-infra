@@ -10,7 +10,7 @@ function result(status, method) {
 export async function handleProbe(request, env, upstream = fetch) {
   const url = new URL(request.url);
   if (url.protocol !== 'https:' || url.host !== 'ingress-preflight.dearjune.ai' ||
-      url.pathname !== '/__june_ingress_probe' || url.search ||
+      url.pathname !== '/__june_ingress_probe' || request.url.split('#', 1)[0].includes('?') ||
       !['GET', 'HEAD'].includes(request.method)) return result(404, request.method);
   if (!env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim()) return result(503, request.method);
   try {
