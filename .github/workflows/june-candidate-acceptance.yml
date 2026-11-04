@@ -1,0 +1,52 @@
+name: June candidate isolated acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: june-candidate-acceptance
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41885580642
+          name: june-callback-build-receipts
+          path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41885580642
+          name: june-callback-candidate-oci
+          path: candidate
+      - name: Verify bytes and inherited base
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends skopeo
+          skopeo --version > candidate/validation-tool-version.txt
+          base=ghcr.io/convex/convex-backend@sha256:1213025415839c3ef68b2874cdf10b6c8dcb806fa934f667c48c3fb0ca09ba18
+          skopeo inspect --raw "docker://$base" > candidate/base-amd64-manifest.json
+          skopeo inspect --config "docker://$base" > candidate/base-amd64-config.json
+          python3 scripts/june-callback-build/verify-candidate.py candidate
+          skopeo copy oci-archive:candidate/june-callback-candidate.tar docker-daemon:june-callback-candidate:verified
+      - name: Capped offline empty-data ABI and startup
+        run: bash scripts/june-callback-build/smoke.sh candidate/smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: june-candidate-acceptance-receipts
+          path: |
+            candidate/candidate-verification.json
+            candidate/base-amd64-*.json
+            candidate/validation-tool-version.txt
+            candidate/smoke/
+          retention-days: 14

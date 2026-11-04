@@ -51,3 +51,39 @@ Prettier plugin and complete formatter settings remain unchanged. The formatter
 check is retained. This invalidates `COPY . .` and subsequent build layers, not
 the preceding dependency layers if a cache is available. Ephemeral runners do
 not promise cache reuse, so a corrected attempt may repeat the full build.
+
+## Isolated acceptance and publication path
+
+`june-candidate-acceptance.yml` consumes only build run 41885580642, checks the
+fixed archive and every blob digest, compares the exact amd64 base layers and
+runtime config, then imports the candidate on an ephemeral Ubicloud runner.
+It runs the binary loader/ldd and startup health with 4 CPU/8 GiB caps, no
+network, no host mounts and empty bounded tmpfs data. The instance credential is
+a public disposable test fixture. No production secrets, state or providers are
+reachable. Compilation and registry publication are absent.
+
+This proves only image identity, ABI and empty-data startup. The build's seven
+focused tests prove callback transport behavior in the workspace, not a real
+nested action in the resulting runtime. Isolated deployed synthetic nested-action
+acceptance remains required before a production rollout.
+
+After candidate acceptance, publish the verified OCI archive without rebuilding,
+using `skopeo copy --preserve-digests oci-archive:... docker://ghcr.io/nicolaischmid/june-convex-backend:callback-b9e7e9c`
+in a reviewed job with package-write permission limited to that job. Re-read the
+registry manifest and require unchanged digest
+`sha256:fc6f1b18d8e4ed81b9f77dffe131bc58c333c85557f51501324418fd6a2eb2bb`.
+Only then update `hosts/black/convex/june-prod-image.nix` to that registry digest;
+other instance image selectors remain unchanged. No registry publication or
+selector change is included in this acceptance workflow.
+
+The single later June activation must apply candidate image plus action1800 and
+HTTP2100 together, after fresh parent serialization clearance. Prepare a new
+independently reviewed drift-guarded helper from the then-current live identity;
+preserve occupied data/mounts, image defaults, network/ports, capacity, unrelated
+environment, key digests, route bytes and every other instance identity. Recreate
+only June backend with Compose `--no-deps --pull never`. Keep a private exact
+baseline/rollback receipt and the original image locally; rollback restores the
+prior image and 800/1800 settings with the same data, including recovery from a
+partially renamed Compose container. Do not reuse a stale activation fingerprint
+or perform a fleet Nix switch. Source-selector review and concrete helper review
+remain separate gates; this document is not an activation command.
