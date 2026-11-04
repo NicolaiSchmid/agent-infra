@@ -1,0 +1,88 @@
+name: Publish verified June candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: june-candidate-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41885580642
+          name: june-callback-build-receipts
+          path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41885580642
+          name: june-callback-candidate-oci
+          path: candidate
+      - name: Require recorded isolated acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/NicolaiSchmid/agent-infra/actions/runs/41891541466 > candidate/acceptance-run.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('candidate/acceptance-run.json').read_text())
+          assert r['status'] == 'completed' and r['conclusion'] == 'success'
+          assert r['head_sha'] == '29a36ca524af9ff4432e6da0f29ed8223e53a6ca'
+          PY
+      - name: Verify and publish exact OCI without rebuilding
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          REGISTRY_USER: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends skopeo
+          auth_file="$RUNNER_TEMP/june-publish-auth.json"
+          printf '%s\n' '{"auths":{}}' > "$auth_file"
+          chmod 600 "$auth_file"
+          export REGISTRY_AUTH_FILE="$auth_file"
+          base=ghcr.io/convex/convex-backend@sha256:1213025415839c3ef68b2874cdf10b6c8dcb806fa934f667c48c3fb0ca09ba18
+          skopeo inspect --authfile "$auth_file" --raw "docker://$base" > candidate/base-amd64-manifest.json
+          skopeo inspect --authfile "$auth_file" --config "docker://$base" > candidate/base-amd64-config.json
+          python3 scripts/june-callback-build/verify-candidate.py candidate
+          printf '%s' "$REGISTRY_TOKEN" | skopeo login --authfile "$auth_file" --username "$REGISTRY_USER" --password-stdin ghcr.io
+          destination=ghcr.io/nicolaischmid/june-convex-backend:callback-b9e7e9c
+          expected=fc6f1b18d8e4ed81b9f77dffe131bc58c333c85557f51501324418fd6a2eb2bb
+          if skopeo inspect --authfile "$auth_file" --raw "docker://$destination" > candidate/existing-manifest.json 2> "$RUNNER_TEMP/june-inspect-error.txt"; then
+            test "$(sha256sum candidate/existing-manifest.json | cut -d' ' -f1)" = "$expected"
+          else
+            # Only an explicit missing manifest/repository permits first publication.
+            grep -Eiq 'manifest unknown|name unknown' "$RUNNER_TEMP/june-inspect-error.txt"
+            skopeo copy --authfile "$auth_file" --preserve-digests \
+              oci-archive:candidate/june-callback-candidate.tar "docker://$destination"
+          fi
+          skopeo inspect --authfile "$auth_file" --raw "docker://$destination" > candidate/published-manifest.json
+          test "$(sha256sum candidate/published-manifest.json | cut -d' ' -f1)" = "$expected"
+          printf '%s@sha256:%s\n' "${destination%%:*}" "$expected" > candidate/published-reference.txt
+          skopeo --version > candidate/publication-tool-version.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: june-candidate-publication-receipts
+          path: |
+            candidate/acceptance-run.json
+            candidate/candidate-verification.json
+            candidate/published-manifest.json
+            candidate/published-reference.txt
+            candidate/publication-tool-version.txt
+          retention-days: 30
