@@ -1,0 +1,66 @@
+name: June callback candidate
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Reviewed PR60 source pin (fixed)
+        required: true
+        default: 46334ae29a556b3c492219ae0b1bb1a6888ed107
+permissions:
+  contents: read
+concurrency:
+  group: june-callback-candidate
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubicloud-standard-16
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare exact reviewed source
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_COMMIT" = 46334ae29a556b3c492219ae0b1bb1a6888ed107
+          mkdir -p receipts
+          git rev-parse HEAD > receipts/workflow-commit.txt
+          git fetch --depth=1 https://github.com/NicolaiSchmid/agent-infra.git "$SOURCE_COMMIT"
+          mkdir source
+          git archive FETCH_HEAD patches/convex-callback-headers | tar -x -C source
+          bash source/patches/convex-callback-headers/prepare-build.sh "$RUNNER_TEMP/convex-candidate" lukemathwalker/cargo-chef@sha256:f2f5dd17529888976ea9467a66faf0e98fa630751548f17bfdc3e8999463a43b
+          python3 scripts/june-callback-build/prepare.py "$RUNNER_TEMP/convex-candidate"
+          cp "$RUNNER_TEMP/convex-candidate/callback-build-inputs.json" receipts/
+          cp "$RUNNER_TEMP/convex-candidate/Dockerfile.callback" receipts/
+          printf '%s\n' "$SOURCE_COMMIT" > receipts/source-commit.txt
+      - name: Build and retain immutable OCI candidate
+        run: |
+          set -euo pipefail
+          df -h > receipts/disk-before.txt
+          docker version > receipts/docker-version.txt
+          /usr/bin/time -v -o receipts/resources.txt docker buildx build \
+            --platform linux/amd64 --progress plain \
+            --file "$RUNNER_TEMP/convex-candidate/Dockerfile.callback" \
+            --build-arg VERGEN_GIT_SHA=bb31399c8704ceb6c19003936f6e144375b2c3bc \
+            --build-arg VERGEN_GIT_COMMIT_TIMESTAMP=2026-10-24T08:39:29Z \
+            --metadata-file receipts/image-metadata.json \
+            --output "type=oci,dest=$RUNNER_TEMP/june-callback-candidate.tar" \
+            "$RUNNER_TEMP/convex-candidate" 2>&1 | tee receipts/build.log
+          sha256sum "$RUNNER_TEMP/june-callback-candidate.tar" > receipts/archive-sha256.txt
+      - name: Record final disk usage
+        if: always()
+        run: df -h > receipts/disk-after.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: june-callback-build-receipts
+          path: receipts/
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: june-callback-candidate-oci
+          path: ${{ runner.temp }}/june-callback-candidate.tar
+          compression-level: 0
+          retention-days: 7
