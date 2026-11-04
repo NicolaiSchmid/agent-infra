@@ -7,7 +7,9 @@ on:
 
 jobs:
   nix:
-    runs-on: ubuntu-latest
+    # Atlas includes large tool bundles; use the organization's Linux runner pool.
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v17
