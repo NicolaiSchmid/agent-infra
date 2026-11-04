@@ -4,6 +4,11 @@ set -euo pipefail
 candidate=june-callback-candidate:verified
 receipts=${1:?receipt directory required}
 mkdir -p "$receipts"
+# OCI manifest identity was verified before import. Docker's image ID is the
+# config digest; require that identity after conversion/import before execution.
+loaded_id=$(docker image inspect --format '{{.Id}}' "$candidate")
+test "$loaded_id" = sha256:3109a3fa67890843b147771d480eea8106af011cae79084b3c330153c35aba5b
+printf '%s\n' "$loaded_id" > "$receipts/loaded-image-id.txt"
 cid=
 cleanup() { if [[ -n "$cid" ]]; then docker rm --force --volumes "$cid" >/dev/null; fi; }
 trap cleanup EXIT
