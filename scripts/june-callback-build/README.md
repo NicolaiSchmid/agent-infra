@@ -87,3 +87,48 @@ prior image and 800/1800 settings with the same data, including recovery from a
 partially renamed Compose container. Do not reuse a stale activation fingerprint
 or perform a fleet Nix switch. Source-selector review and concrete helper review
 remain separate gates; this document is not an activation command.
+
+## Digest-preserving publication workflow
+
+`june-candidate-publish.yml` is manual-only and performs no build or deployment.
+Only its publication job receives `packages: write`; it uses the ephemeral
+GitHub Actions token through Skopeo's stdin login and a separate mode-600 auth
+file outside artifact paths. No user PAT or production credentials are needed.
+It requires the fixed successful isolated-validation run, verifies original OCI
+bytes/base again, and publishes to
+`ghcr.io/nicolaischmid/june-convex-backend:callback-b9e7e9c` with
+`--preserve-digests`. An existing matching tag is a no-op; an existing different
+digest or an ambiguous registry/auth/network error stops publication. Exact
+remote manifest SHA256 readback is mandatory before selecting the image.
+
+After reviewed workflow CI/merge, the sole operator dispatches through its
+preserved branch only after confirming it still points to the reviewed commit:
+
+```sh
+gh workflow run june-candidate-publish.yml --repo NicolaiSchmid/agent-infra \
+  --ref feat/june-candidate-publication
+```
+
+If registry creation/visibility or token authorization is denied, retain that
+receipt and resolve the specific package permission/visibility gate; do not add
+a PAT, change client credentials, rebuild, or silently fall back to another
+registry. Black's later pull of the exact digest must be proven independently;
+publication does not prove public readability or production pull access.
+
+## Long nested-action acceptance after coordinated activation
+
+Run exactly one synthetic parent/child probe through a dedicated long-lived
+client with no automatic retry. Confirm the client, proxy and server deadlines
+leave headroom over the 1805-second outer action deadline (HTTP2100 is the
+planned server envelope); a browser's 300-second disconnect is not evidence of
+runtime termination. The parent must await a real `ctx.runAction` child whose
+wait crosses 300 seconds and the previous 600-second ceiling (605 seconds).
+Use a unique request/receipt ID and retain authenticated parent AND child
+completion/error receipts, start/end/duration and retry flags. Require one
+invocation each, no database/storage writes, and explicit cleanup/cancellation
+or completion evidence for both. If the client disconnects, reconcile the same
+execution IDs before any new invocation; never retry blindly. A successful
+response alone does not establish child cleanup. Coordinate with the parent
+that no backend deployment, token refresh operation or other long action is in
+flight before recreation or this probe. Preserve application and X token state.
+The build's accelerated transport tests are supporting evidence, not this gate.
