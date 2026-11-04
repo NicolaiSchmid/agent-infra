@@ -43,3 +43,11 @@ Nix flake evaluation and cloud-shell evaluation pass. Behavioral secret-delivery
 tests cover wrong permissions, symlinks, target selection, rejected redirects,
 quiet failures and dry validation. CI contains no secret-bearing artifact upload
 or apply step. Open a reviewed PR; do not switch any running NixOS host.
+
+## CI capacity correction, 2026-11-04
+
+The first full Nix CI build exhausted the GitHub-hosted runner disk while
+assembling Atlas's existing Pulumi bundle; Black and cloud validation passed.
+Move the full Nix job to the existing organization Ubicloud standard-8 runner
+class, matching June's Linux CI and this repository's documented runner policy.
+Keep full host builds enabled; no host configuration or package pin changes.
