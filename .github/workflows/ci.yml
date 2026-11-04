@@ -32,6 +32,7 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@v13
       - name: Test scoped activation health
         run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/storage-box -p 'test_*.py'
           python3 scripts/activate-routing-only.test.py
           python3 scripts/checked-routing-step.test.py
           python3 -m unittest discover -s scripts/june-runtime-activation -p 'test_*.py'

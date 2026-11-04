@@ -168,20 +168,25 @@
 
         # What `npx convex export --include-file-storage` does: request a
         # snapshot export, wait for it, download the zip.
+        previous=$(curl -fsS -X POST -H "$auth" -H 'content-type: application/json' \
+          -d '{"path":"_system/cli/exports:getLatest","args":{},"format":"json"}' "$url/api/query" | jq -r '.value.start_ts // "none"')
         curl -fsS -X POST -H "$auth" "$url/api/export/request/zip?includeStorage=true" >/dev/null
         for _ in $(seq 360); do
           latest=$(curl -fsS -X POST -H "$auth" -H 'content-type: application/json' \
             -d '{"path":"_system/cli/exports:getLatest","args":{},"format":"json"}' "$url/api/query")
           state=$(jq -r .value.state <<<"$latest")
-          [ "$state" = completed ] && break
+          [ "$state" = completed ] && [ "$(jq -r .value.start_ts <<<"$latest")" != "$previous" ] && break
           [ "$state" = failed ] && { echo "export failed" >&2; exit 1; }
           sleep 5
         done
-        [ "$state" = completed ] || { echo "export still $state after 30 min" >&2; exit 1; }
+        [ "$state" = completed ] && [ "$(jq -r .value.start_ts <<<"$latest")" != "$previous" ] || { echo "export still $state after 30 min" >&2; exit 1; }
         ts=$(jq -r .value.start_ts <<<"$latest")
         zip=$(mktemp --suffix=.zip)
         trap 'rm -f "$zip"' EXIT
         curl -fsS -H "$auth" "$url/api/export/zip/$ts" -o "$zip"
+        ${lib.optionalString config.services.productBackup.enable ''
+          /run/current-system/sw/bin/product-backup ${name} "$zip" "$ts"
+        ''}
         rclone copyto "$zip" "$dest/$(date -u +%Y-%m-%dT%H%M%SZ)-$ts.zip"
         echo "exported $(stat -c %s "$zip") bytes at $ts"
 
