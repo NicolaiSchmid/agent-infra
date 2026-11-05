@@ -1,5 +1,10 @@
 {pkgs, ...}: let
   atlasMemoryMiB = 52 * 1024;
+  # What atlas boots with; the balloon can grow it back to atlasMemoryMiB
+  # (`virsh setmem atlas <KiB> --live`) without a restart. 47 GiB since
+  # 2026-11-05, so June production on black can have 8G (convex/
+  # june-prod-capacity.nix) and black keeps its pressure buffer.
+  atlasCurrentMemoryMiB = 47 * 1024;
   atlasVCpus = 12;
   atlasRootSize = "120G";
   # 750G, not 1000G: black has 953G of btrfs RAID1, and a guest disk larger
@@ -33,7 +38,7 @@
     <domain type='kvm'>
       <name>atlas</name>
       <memory unit='MiB'>${toString atlasMemoryMiB}</memory>
-      <currentMemory unit='MiB'>${toString atlasMemoryMiB}</currentMemory>
+      <currentMemory unit='MiB'>${toString atlasCurrentMemoryMiB}</currentMemory>
       <vcpu placement='static'>${toString atlasVCpus}</vcpu>
       <os>
         <type arch='x86_64' machine='pc-q35-8.2'>hvm</type>
