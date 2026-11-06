@@ -10,6 +10,7 @@ in {
     ./disko.nix
     ./libvirt.nix
     ./networking.nix
+    ./storage-box.nix
     ./sops.nix
     ./phone-sbc.nix
     ./client-data.nix

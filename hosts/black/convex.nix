@@ -170,28 +170,35 @@
 
         # What `npx convex export --include-file-storage` does: request a
         # snapshot export, wait for it, download the zip.
+        previous=$(curl -fsS -X POST -H "$auth" -H 'content-type: application/json' \
+          -d '{"path":"_system/cli/exports:getLatest","args":{},"format":"json"}' "$url/api/query" | jq -r '.value.start_ts // "none"')
         curl -fsS -X POST -H "$auth" "$url/api/export/request/zip?includeStorage=true" >/dev/null
         for _ in $(seq 360); do
           latest=$(curl -fsS -X POST -H "$auth" -H 'content-type: application/json' \
             -d '{"path":"_system/cli/exports:getLatest","args":{},"format":"json"}' "$url/api/query")
           state=$(jq -r .value.state <<<"$latest")
-          [ "$state" = completed ] && break
+          [ "$state" = completed ] && [ "$(jq -r .value.start_ts <<<"$latest")" != "$previous" ] && [ "$(jq -r .value.format.include_storage <<<"$latest")" = true ] && break
           [ "$state" = failed ] && { echo "export failed" >&2; exit 1; }
           sleep 5
         done
-        [ "$state" = completed ] || { echo "export still $state after 30 min" >&2; exit 1; }
+        [ "$state" = completed ] && [ "$(jq -r .value.start_ts <<<"$latest")" != "$previous" ] && [ "$(jq -r .value.format.include_storage <<<"$latest")" = true ] || { echo "export still $state after 30 min" >&2; exit 1; }
         ts=$(jq -r .value.start_ts <<<"$latest")
         zip=$(mktemp --suffix=.zip)
         trap 'rm -f "$zip"' EXIT
         curl -fsS -H "$auth" "$url/api/export/zip/$ts" -o "$zip"
         rclone copyto "$zip" "$dest/$(date -u +%Y-%m-%dT%H%M%SZ)-$ts.zip"
         echo "exported $(stat -c %s "$zip") bytes at $ts"
+        offhost_status=0
+        ${lib.optionalString config.services.productBackup.enable ''
+          ${config.system.build.productBackupRunner}/bin/product-backup ${name} "$zip" "$ts" || offhost_status=$?
+        ''}
 
         # Keep the newest 14.
         rclone lsf "$dest" | sort | head -n -14 | while read -r old; do
           rclone deletefile "$dest/$old"
           echo "removed $old"
         done
+        exit "$offhost_status"
       '';
     };
 
@@ -228,11 +235,13 @@
 
     "convex-${name}-backup" = {
       description = "Back up Convex ${name} into Garage";
-      after = ["convex-${name}.service"];
+      after = ["convex-${name}.service"] ++ lib.optional config.services.productBackup.enable "sops-install-secrets.service";
+      requires = lib.optional config.services.productBackup.enable "sops-install-secrets.service";
       requisite = ["convex-${name}.service"];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${backup name d}/bin/convex-${name}-backup";
+        TimeoutStartSec = "3h";
         Nice = 19;
         IOSchedulingClass = "idle";
       };

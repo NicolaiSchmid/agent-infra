@@ -87,6 +87,12 @@
     };
 
     checks.${system} = {
+      storage-box-backup = pkgs.runCommand "storage-box-backup-tests" {nativeBuildInputs = [pkgs.python3 pkgs.age];} ''
+        export PYTHONDONTWRITEBYTECODE=1
+        cp -r ${./scripts/storage-box} "$TMPDIR/tests"
+        python3 -m unittest discover -s "$TMPDIR/tests" -p 'test_*.py'
+        touch "$out"
+      '';
       black = self.nixosConfigurations.black.config.system.build.toplevel;
       atlas = self.nixosConfigurations.atlas.config.system.build.toplevel;
     };
