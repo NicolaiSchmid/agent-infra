@@ -52,6 +52,8 @@
   juneCapacityCompose = pkgs.writeText "june-prod-capacity.json" (builtins.toJSON {
     services.backend = {
       image = import ./convex/june-prod-image.nix;
+      # Headroom for reactive sidebar queries under shared-host load.
+      environment.DATABASE_UDF_USER_TIMEOUT_SECONDS = "5";
       # User ceiling 1800s; local executor has another 5s of system overhead.
       environment.NODE_ACTION_USER_TIMEOUT_SECS = "1800";
       # Keep the HTTP request envelope above the 1805s executor deadline.
