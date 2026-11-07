@@ -1,0 +1,35 @@
+<!-- ClickHouse shares the tailscale container's network namespace with the
+     proxy: bind to loopback only. The tailnet reaches it through
+     `tailscale serve` (serve.json :8443), never directly. -->
+<clickhouse>
+    <listen_host replace="replace">127.0.0.1</listen_host>
+    <interserver_http_port remove="remove"/>
+    <mysql_port remove="remove"/>
+    <postgresql_port remove="remove"/>
+    <!-- small VM: keep caches and the server's own logs modest -->
+    <max_server_memory_usage_to_ram_ratio>0.4</max_server_memory_usage_to_ram_ratio>
+    <mark_cache_size>268435456</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>3</count>
+    </logger>
+    <trace_log remove="remove"/>
+    <text_log remove="remove"/>
+    <metric_log remove="remove"/>
+    <asynchronous_metric_log remove="remove"/>
+    <latency_log remove="remove"/>
+    <query_metric_log remove="remove"/>
+    <error_log remove="remove"/>
+    <processors_profile_log remove="remove"/>
+    <part_log remove="remove"/>
+    <query_thread_log remove="remove"/>
+    <query_views_log remove="remove"/>
+    <opentelemetry_span_log remove="remove"/>
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_log>
+</clickhouse>
