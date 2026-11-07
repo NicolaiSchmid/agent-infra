@@ -18,6 +18,7 @@ in {
     (modulesPath + "/profiles/qemu-guest.nix")
     ./disko.nix
     ./sops.nix
+    ./tower-syslog.nix
     ./tailscale.nix
     ./forge-runner-watchdog.nix
     ./priorities.nix
