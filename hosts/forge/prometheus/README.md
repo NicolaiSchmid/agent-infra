@@ -166,8 +166,9 @@ Each account contributes 100 percentage points to the pool; different plan
 capacities are **not** inferred. Weekly and five-hour windows stay separate.
 Missing provider windows display as unavailable. Forecasts need at least 30
 minutes of contiguous observations for every included account, use the last
-three hours of non-reset quota changes, and project 12 hours at constant burn
-with known resets. These are estimates, not provider guarantees.
+three hours of non-reset quota changes, and project up to seven days at constant burn
+with known resets (12 hours for the five-hour window). The future-usage selector
+scales that estimated burn; drain-rate charts use observed quota changes. These are estimates, not provider guarantees.
 
 Check `GET /dashboard/health` for process health and `/dashboard/api/state` for
 collector errors/freshness. Targeted tests:
@@ -178,3 +179,10 @@ Rollback: remove only the `/dashboard` handler from the saved Serve config and
 run `tailscale serve --https=443 --set-path=/dashboard off` inside the Tailscale
 container, then `docker compose -f docker-compose.yml -f dashboard/compose.yaml
 stop dashboard`. Keep the data directory for a later restart.
+
+The dashboard layout follows Theo's quota screenshot: provider tabs, remaining/
+drain modes, 1h/3h/6h burn windows, future-usage scenarios, and expandable account
+rows. Configuration navigation opens the existing key-protected management UI.
+The body is fixed to the viewport; only the content pane scrolls, with
+`overscroll-behavior: none` on the document and scroll containers to prevent
+boundary bounce/scroll chaining.

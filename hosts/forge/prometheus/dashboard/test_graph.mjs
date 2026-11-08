@@ -22,3 +22,15 @@ const result=vm.runInNewContext(source+`;graph(${JSON.stringify(accounts)},'clau
 assert.equal(result.burn,null);
 assert.equal(result.projection.length,0);
 console.log('Quota graph: reset accounting, burn estimation, short history, desktop/mobile dimensions passed');
+const makeContext = (measure, factor) => ({data,measure,burnHours:3,innerWidth:390,document:{querySelector:()=>({clientWidth:390}),getElementById:()=>({})},$:id=>({value:id==='future'?String(factor):'72'})});
+const run = context => vm.runInNewContext(source+`;graph(${JSON.stringify(accounts)},'claude','seven_day','#fff')`,context);
+assert.equal(run(makeContext('remaining',1)).firstEmpty,now+5*3600);
+const idle=run(makeContext('remaining',0));
+assert.equal(idle.firstEmpty,null);
+assert.equal(idle.poolEmpty,null);
+assert.equal(idle.projection.at(-1)[1],200);
+const drain=run(makeContext('drain',1));
+assert(drain.html.includes('%/h'));
+assert(!drain.html.includes('stroke-dasharray'));
+assert(!drain.html.includes('NaN'));
+console.log('Chart modes, future usage scenarios and first depletion passed');
