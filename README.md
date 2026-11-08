@@ -135,9 +135,32 @@ They may be carrying active work. Config changes that affect service
 environment, PATH, or runtime mounts should be applied in a planned window.
 
 `nixos-rebuild switch` therefore never restarts `t3code` on atlas
-(`restartIfChanged = false`). After a rebuild that changed the unit (new `t3`
+(`restartIfChanged = false`). After a rebuild that changed the unit (launcher
 pin, environment, PATH), finish the rollout with `systemctl restart t3code`
 on atlas once no agent work is in flight.
+
+Atlas's T3 server uses the upstream `__service-launcher`, configured in
+`hosts/atlas/t3code-launcher.nix`. Nix pins the launcher and initial runtime;
+the in-app updater owns subsequent server versions in
+`/srv/agents-state/t3code/runtime/service-state.json`. Startup seeds that state
+only when absent, so rebuilds and reboots do not downgrade an updated server.
+The old `app/` npm installation is no longer used. Do not run `t3 service
+install`: Nix owns the system service, rather than an upstream user service.
+
+In-app updates stage and preflight a release, then the launcher restarts its
+server child without restarting the systemd unit. T3's default
+`continueThreadsAfterServerUpdate` setting resumes eligible interrupted turns;
+background commands and native subagents can still be cancelled. This is
+recovery after interruption, not an uninterrupted update. Nix still manages
+the provider CLIs and environment; changing those requires a planned service
+restart. A future launcher protocol change also requires updating the Nix
+launcher pin and bootstrap protocol together.
+
+For the first rollout, rebuild Atlas and perform one planned restart. Check
+`systemctl status t3code` and the in-app server update capability afterward.
+Do not delete or hand-edit `runtime/service-state.json` to roll back a server:
+the newer release may have migrated its database. A Nix generation rollback
+does not roll back the updater-owned runtime or database.
 
 Agent temp on atlas is `TMPDIR=/srv/agents-state/tmp` (state disk, aged after
 10 days); the root-disk `/tmp` is aged after 2 days and cleaned on boot. See

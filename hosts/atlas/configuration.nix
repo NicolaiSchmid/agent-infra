@@ -24,6 +24,7 @@ in {
     ./build-sweep.nix
     ./agent-checks.nix
     ./docker-prune.nix
+    ./t3code-launcher.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
