@@ -53,8 +53,10 @@ in {
       CPUWeight = 20;
       IOWeight = 20;
       CPUQuota = "300%";
-      MemoryHigh = "2750M";
-      MemoryMax = "3G";
+      # 4G since 2026-11-09, when the gateway deployments grew to 1536m each
+      # (convex/deployments.nix).
+      MemoryHigh = "3750M";
+      MemoryMax = "4G";
       MemorySwapMax = "1G";
     };
   };
