@@ -44,6 +44,7 @@ class ArchiveTest(unittest.TestCase):
             secrets.mkdir()
             for name in ('convex-demo.env', 'convex-demo-admin-key'):
                 (secrets / name).write_text('fixture')
+            (secrets / 'e2b.env').write_text('unrelated host credential')
             export = root / 'export.zip'
             with zipfile.ZipFile(export, 'w') as z:
                 z.writestr('table/documents.jsonl', '{}')
@@ -54,7 +55,12 @@ class ArchiveTest(unittest.TestCase):
                     with self.assertRaises(subprocess.CalledProcessError):
                         backup.main()
                 self.assertFalse((root / 'demo.json').exists())
-                with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout=b'{}')):
+                def verify_scoped_secrets(command, **kwargs):
+                    with tarfile.open(Path(kwargs['cwd']) / 'recovery.tar') as archive:
+                        names = {name for name in archive.getnames() if name.startswith('secrets/')}
+                    self.assertEqual(names, {'secrets/convex-demo.env', 'secrets/convex-demo-admin-key'})
+                    return subprocess.CompletedProcess(command, 0, stdout=b'{}')
+                with patch.object(subprocess, 'run', side_effect=verify_scoped_secrets):
                     backup.main()
                 self.assertTrue((root / 'demo.json').exists())
                 self.assertTrue(export.exists())

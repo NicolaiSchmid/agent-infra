@@ -81,7 +81,10 @@ def main():
         else:
             references = set()
         with tarfile.open(work / 'recovery.tar', 'w') as tar:
-            tar.add(a.secrets, arcname='secrets')
+            # Each deployment's env already contains its scoped Garage key.
+            # Shared host/admin secrets are outside product recovery authority.
+            for secret in required:
+                tar.add(secret, arcname='secrets/' + secret.name)
             tar.add(a.config, arcname='agent-infra')
             if a.capture_runtime:
                 tar.add(runtime, arcname='runtime')
