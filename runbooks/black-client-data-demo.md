@@ -15,7 +15,7 @@ lives in `/var/lib/client-data`.
 
 All on black (bare metal, real KVM), as Docker Compose projects run by
 systemd units, inside `client-data.slice` (CPU/IO weight 20 next to atlas's
-qemu, quota 3 CPUs, MemoryMax 3G):
+qemu, quota 3 CPUs, MemoryMax 4G):
 
 | Unit / project | What | Reached at |
 |---|---|---|
@@ -34,8 +34,8 @@ Deployments (in `hosts/black/convex/deployments.nix`):
 |---|---|---|---|---|
 | `june-dev` | `https://june-dev.convex.modusservice.com` | `https://june-dev-site.convex.modusservice.com` | 13210 / 13211 | 768m / 1 |
 | `june-prod` | `https://june-prod.convex.modusservice.com` | `https://june-prod-site.convex.modusservice.com` | 13220 / 13221 | 1g / 1.5 |
-| `modus-gateway-dev` | `https://modus-gateway-dev.convex.modusservice.com` | `https://modus-gateway-dev-site.convex.modusservice.com` | 13230 / 13231 | 512m / 0.5 |
-| `modus-gateway-prod` | `https://modus-gateway-prod.convex.modusservice.com` | `https://modus-gateway-prod-site.convex.modusservice.com` | 13240 / 13241 | 768m / 1 |
+| `modus-gateway-dev` | `https://modus-gateway-dev.convex.modusservice.com` | `https://modus-gateway-dev-site.convex.modusservice.com` | 13230 / 13231 | 1536m / 0.5 |
+| `modus-gateway-prod` | `https://modus-gateway-prod.convex.modusservice.com` | `https://modus-gateway-prod-site.convex.modusservice.com` | 13240 / 13241 | 1536m / 1 |
 | `modus-dev` | `https://modus-dev.convex.modusservice.com` | `https://modus-dev-site.convex.modusservice.com` | 13250 / 13251 | 512m / 0.5 |
 | `modus-prod` | `https://modus-prod.convex.modusservice.com` | `https://modus-prod-site.convex.modusservice.com` | 13260 / 13261 | 768m / 1 |
 
