@@ -13,20 +13,11 @@ system profile privately immediately before activation. Back up June's SQLite
 with the online SQLite backup API and retain its credentials and empty storage
 privately; never print credentials or commit backups.
 
-Build only the route unit from a source based on the exact running system's
-source (`dadec0dccd4fb3245f1dfe16d7d84d1456d132dd`) plus the reviewed
-`hosts/black/routes.nix` delta from the gateway routing source. Do not build or
-switch current main's global system: it includes undeployed phone work.
-The unit attribute is
-`nixosConfigurations.black.config.systemd.units."routes.service".unit`.
-Root the resulting immutable unit closure on black. Run
-`scripts/activate-june-routing.py dry-run --unit <store-unit>/routes.service
---backup <new-private-directory>`, then `apply` with the same arguments.
-The helper checks non-command unit equality, saves the existing service
-override, replaces only commands, and checks gateway table/key equality.
-Failed apply restores the prior override. `rollback` restores it explicitly.
-Do not rollback policy while a June table still claims the new hosts: first
-restore the saved June table with its sole publisher drained.
+The route policy was activated on 2026-11-03 through a hand-made override of
+`routes.service`, removed on 2026-11-10; route policy changes now ship with
+`nixos-rebuild switch`. Do not roll back policy while a June table still
+claims the new hosts: first restore the saved June table with its sole
+publisher drained.
 
 The new `june` project accepts exactly `june.convex.modusservice.com` and
 `june-http.convex.modusservice.com`, targeting only `june-prod`. Generated
@@ -39,9 +30,7 @@ HTTP-01 certificates. Recheck inertness just before that first publication.
 DNS uses explicit DNS-only A/AAAA records. After publication verify trusted
 TLS, `/version`, harmless WebSocket connection/read behavior and HTTP 404 over
 both families. Keep clients, origins, environment, webhooks, schedules and
-production code/data unchanged. Future code/data import is a separate step:
-the current 1 GiB / 1.5 CPU service cap is below the successful rehearsal's
-4 GiB / 2 CPU cap and needs capacity assessment before migration.
+production code/data unchanged. Capacity: `runbooks/june-production-capacity.md`.
 
 ## Checked operator sequencing
 

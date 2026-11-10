@@ -37,11 +37,6 @@
       ];
       convex = ["modus-gateway-dev" "modus-gateway-prod"];
     };
-    # NicolaiSchmid/modus, apps/site (its Convex project).
-    modus = {
-      hosts = [];
-      convex = ["modus-dev" "modus-prod"];
-    };
     # June production target; development and generated hosts stay protected.
     june = {
       hosts = ["june.convex.modusservice.com" "june-http.convex.modusservice.com" "apis.junepartner.com"];

@@ -81,24 +81,19 @@ a defensible numeric RAM/disk bound. Measure/reserve those through the normal
 build queue before starting, cap concurrent compilation, and keep this work off
 the live Black host. No heavy build or image push is authorized by this recipe.
 
-## June-only selection and later rollout
+## June-only selection
 
-`hosts/black/convex/june-prod-image.nix` is consumed only by June production's
-existing Compose overlay. It still selects the exact current upstream image.
-Other deployments retain the shared template's image. After an admitted build,
-review a separate change to this single June digest; do not invent a placeholder
-or change the shared image pin.
-
-A later explicit activation must preserve the occupied data mount, environment
-(including action1800/HTTP2100), capacity, networking and other instances. Require
-isolated candidate acceptance and independent review first, then use a scoped
-managed June backend recreation in a coordinated window. No global Nix switch,
-production restart, environment update or image activation occurs in this PR.
-Keep live acceptance facts in the existing June ledger, not in this source file.
+June production's entry in `hosts/black/convex/deployments.nix` selects this
+build by registry digest, together with action1800/HTTP2100; other
+deployments keep the shared template's image. It has run there since
+2026-11-04. A new build is a reviewed change to that single digest, deployed
+by the normal `nixos-rebuild switch`; never a placeholder, a moved tag or a
+change to the shared image pin. Keep live acceptance facts in the June ledger,
+not in this source file.
 
 ## June execution and HTTP envelopes
 
-The planned June-only overlay sets `NODE_ACTION_USER_TIMEOUT_SECS=1800` and
+June production's entry sets `NODE_ACTION_USER_TIMEOUT_SECS=1800` and
 `HTTP_SERVER_TIMEOUT_SECONDS=2100`. Other instances retain their existing values.
 At exact upstream `crates/local_backend/src/lib.rs:208`, the local executor's
 outer process/response deadline is the action ceiling plus 5 seconds: 1805s.
