@@ -5,9 +5,9 @@
 # It must not hold real client data; before tax-firm contracts it moves to its
 # own server (runbooks/black-client-data-demo.md has the why and the move).
 #
-# black's job is running the atlas VM, which holds 52 GiB of black's 62 and 12
-# of its 16 threads, so everything here sits in client-data.slice with a hard
-# ceiling far below what is left:
+# black's job is running the atlas VM, which holds 47 GiB of black's 62 (52 at
+# most, by balloon; libvirt.nix) and 12 of its 16 threads, so everything here
+# sits in client-data.slice with a hard ceiling far below what is left:
 # - every container (Docker's cgroup-parent), CPU/IO weight 20 next to
 #   atlas's qemu at 100, and a quota of 3 CPUs;
 # - E2B's sandboxes run outside Docker's cgroups and have their own ceiling
@@ -53,8 +53,10 @@ in {
       CPUWeight = 20;
       IOWeight = 20;
       CPUQuota = "300%";
-      MemoryHigh = "2750M";
-      MemoryMax = "3G";
+      # 4G since 2026-11-09, when the gateway deployments grew to 1536m each
+      # (convex/deployments.nix).
+      MemoryHigh = "3750M";
+      MemoryMax = "4G";
       MemorySwapMax = "1G";
     };
   };

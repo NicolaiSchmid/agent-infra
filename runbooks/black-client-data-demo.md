@@ -15,7 +15,7 @@ lives in `/var/lib/client-data`.
 
 All on black (bare metal, real KVM), as Docker Compose projects run by
 systemd units, inside `client-data.slice` (CPU/IO weight 20 next to atlas's
-qemu, quota 3 CPUs, MemoryMax 3G):
+qemu, quota 3 CPUs, MemoryMax 4G):
 
 | Unit / project | What | Reached at |
 |---|---|---|
@@ -33,13 +33,13 @@ Deployments (in `hosts/black/convex/deployments.nix`):
 | Deployment | Cloud origin | Site origin | Loopback ports | Memory / CPUs |
 |---|---|---|---|---|
 | `june-dev` | `https://june-dev.convex.modusservice.com` | `https://june-dev-site.convex.modusservice.com` | 13210 / 13211 | 768m / 1 |
-| `june-prod` | `https://june-prod.convex.modusservice.com` | `https://june-prod-site.convex.modusservice.com` | 13220 / 13221 | 1g / 1.5 |
-| `modus-gateway-dev` | `https://modus-gateway-dev.convex.modusservice.com` | `https://modus-gateway-dev-site.convex.modusservice.com` | 13230 / 13231 | 512m / 0.5 |
-| `modus-gateway-prod` | `https://modus-gateway-prod.convex.modusservice.com` | `https://modus-gateway-prod-site.convex.modusservice.com` | 13240 / 13241 | 768m / 1 |
-| `modus-dev` | `https://modus-dev.convex.modusservice.com` | `https://modus-dev-site.convex.modusservice.com` | 13250 / 13251 | 512m / 0.5 |
-| `modus-prod` | `https://modus-prod.convex.modusservice.com` | `https://modus-prod-site.convex.modusservice.com` | 13260 / 13261 | 768m / 1 |
+| `june-prod` | `https://june-prod.convex.modusservice.com` | `https://june-prod-site.convex.modusservice.com` | 13220 / 13221 | 8G / 2, own slice (`runbooks/june-production-capacity.md`) |
+| `modus-gateway-dev` | `https://modus-gateway-dev.convex.modusservice.com` | `https://modus-gateway-dev-site.convex.modusservice.com` | 13230 / 13231 | 1536m / 0.5 |
+| `modus-gateway-prod` | `https://modus-gateway-prod.convex.modusservice.com` | `https://modus-gateway-prod-site.convex.modusservice.com` | 13240 / 13241 | 1536m / 1 |
 
 `CONVEX_CLOUD_ORIGIN` and `CONVEX_SITE_ORIGIN` are these hostnames.
+`modus-dev` and `modus-prod` (13250-13261) were retired empty on 2026-11-05;
+their exports are in `/var/lib/client-data/backups/modus-retirement-20261105`.
 
 Not reachable from the internet: the dashboards, Garage, E2B (its api,
 client-proxy and the orchestrator's unauthenticated control API on 5008).
@@ -67,6 +67,9 @@ DNS change for the convex hosts (NicolaiSchmid/dns#104) on 2026-10-31:
 | `modus-dev-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 | `modus-prod.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
 | `modus-prod-site.convex.modusservice.com` | `65.109.71.108` | `2a01:4f9:3051:4d41::2` |
+
+The four `modus-dev*` and `modus-prod*` records point at deployments retired
+on 2026-11-05 and can be removed from the DNS repository.
 
 Still to add (2026-10-31), before switching to the routes API:
 `routes.modusservice.com`, same A and AAAA.
