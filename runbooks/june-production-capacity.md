@@ -1,53 +1,48 @@
 # June production capacity
 
-June production has its own bounded `juneprod.slice`. The full production
-bundle and a post-write stopped-checkpoint recovery passed in an isolated
-same-image trial on 2026-11-03. Resource values live in
-`hosts/black/convex/june-prod-capacity.nix`; the slice and production-only
-Compose overlay derive from them. Other containers retain the shared demo
-slice. A container limit alone cannot supply this capacity under that slice's
-smaller shared memory ceiling.
+June production has its own bounded `juneprod.slice`, outside the shared
+`client-data.slice` (`hosts/black/client-data.nix`): a container limit alone
+cannot exceed that slice's ceiling. The full production bundle and a
+post-write stopped-checkpoint recovery passed in an isolated same-image trial
+on 2026-11-03.
 
-Before a scoped activation, coordinate one backend restart with the routing
-operator. Verify the target is still empty using authenticated component,
-schema, function and storage queries. Privately retain an online SQLite
-backup, empty storage inventory, compose/env/secrets, unit and existing
-slice/drop-in state. Keep the backup outside the data directory. Recheck
-available host memory after allowing the entire new target allocation; retain
-at least 4 GiB for the host. Inspect every cgroup ancestor, including CPU,
-memory, swap and PID limits.
+Every June production setting is in its entry in
+`hosts/black/convex/deployments.nix`: memory, CPUs, PIDs, slice, image and
+the timeouts it adds to the template. `hosts/black/convex.nix` derives the
+slice and the backend's Compose overlay from that entry; other deployments
+take the same path with their own entries.
 
-Build only the `convex-june-prod.service` and `juneprod.slice` unit
-attributes, retain their closures, and install the slice plus a persistent
-production-service drop-in using those immutable paths. On this NixOS host,
-`/etc/systemd/system` points into the immutable store. Install the full slice
-unit as `/etc/systemd/system.control/juneprod.slice`, which is a persistent
-unit search directory, and the service drop-in below
-`/etc/systemd/system.control/convex-june-prod.service.d/`. Back up absence or
-existing ownership first; do not remount the immutable directory. Run
-`systemd-analyze verify` on the slice, reload systemd, and require its
-`FragmentPath` to resolve to the reviewed full unit before recreating the
-backend. A loaded drop-in alone does not establish the slice limits. For this scoped
-activation, append the generated capacity overlay to the captured live Compose
-command and environment file. Current main also changes the bridge name; do
-not activate that template change here. Compare both resolved configurations
-and accept only resource fields. Preserve any unrelated
-service override, especially `routes.service`. Recreate only the production
-backend with that resource-only Compose command. Do not switch the global NixOS
-system, change the Docker daemon's default parent, or modify phone services.
-The checked-in Nix definition owns the configuration for the next normal
-system deployment; the scoped override persists across reboots until that
-handover.
+## Changing it
 
-After recreation verify image, environment, data mount, networking, port
-bindings and Traefik labels against the private before-state. Confirm effective
-ancestor limits, health and the authenticated empty/inert state, then release
-routing probes. An empty-target rollback restores the saved service override,
-original Compose command and prior slice placement. Stop and investigate if
-any application data or code appears: never downgrade limits or restore the
-empty SQLite backup after migration.
+1. Change the entry by pull request. Recheck host memory first: atlas's boot
+   memory (`hosts/black/libvirt.nix`) plus every slice ceiling must leave at
+   least 4 GiB for black.
+2. After merge, on black:
 
-This resource change deploys no June code, imports no data and changes no
-client endpoint. The trial proves recovery into a new directory using the same
-backend image; cloud reverse import and external-effect reconciliation remain
-separate migration gates.
+   ```sh
+   nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra/<merge-commit>#black
+   ```
+
+   Any change to the entry recreates June's backend (a few seconds without
+   the API and WebSocket). Coordinate with June: no backend deploy, long
+   action or token refresh in flight.
+3. Verify the running container against the entry: `docker inspect
+   convex-june-prod-backend-1` (image, `Env`, `HostConfig.Memory`,
+   `CgroupParent`), `systemctl show juneprod.slice -p MemoryMax -p
+   CPUQuotaPerSecUSec`, health, and `https://june.convex.modusservice.com/version`.
+
+Rollback is a revert and another switch. Data stays in
+`/var/lib/client-data/convex/june-prod` either way; never restore an older
+SQLite backup over a live deployment.
+
+## No hand-made overrides
+
+Do not change June's unit with `systemctl edit`, `set-property`, `mask` or a
+file under `/etc/systemd/system.control/`. Such an override outranks the
+generated unit, so the next switch changes the unit and systemd still runs the
+old command: from 2026-11-04 to 2026-11-10 June production ran a pinned
+command that ignored two deploys and would have reverted it to 4 GiB on its
+next restart. Activation now deletes every override of the client-data units
+(`convex-units-nix-only` in `hosts/black/convex.nix`). A live change that
+cannot wait for a merge (`docker update`, `systemctl set-property --runtime`)
+lasts until the next switch; land the same change in Nix right after.

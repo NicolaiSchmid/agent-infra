@@ -72,21 +72,15 @@ using `skopeo copy --preserve-digests oci-archive:... docker://ghcr.io/nicolaisc
 in a reviewed job with package-write permission limited to that job. Re-read the
 registry manifest and require unchanged digest
 `sha256:fc6f1b18d8e4ed81b9f77dffe131bc58c333c85557f51501324418fd6a2eb2bb`.
-Only then update `hosts/black/convex/june-prod-image.nix` to that registry digest;
-other instance image selectors remain unchanged. No registry publication or
-selector change is included in this acceptance workflow.
+Only then set June production's `image` in `hosts/black/convex/deployments.nix`
+to that registry digest; other instance image selectors remain unchanged. No
+registry publication or selector change is included in this acceptance workflow.
 
-The single later June activation must apply candidate image plus action1800 and
-HTTP2100 together, after fresh parent serialization clearance. Prepare a new
-independently reviewed drift-guarded helper from the then-current live identity;
-preserve occupied data/mounts, image defaults, network/ports, capacity, unrelated
-environment, key digests, route bytes and every other instance identity. Recreate
-only June backend with Compose `--no-deps --pull never`. Keep a private exact
-baseline/rollback receipt and the original image locally; rollback restores the
-prior image and 800/1800 settings with the same data, including recovery from a
-partially renamed Compose container. Do not reuse a stale activation fingerprint
-or perform a fleet Nix switch. Source-selector review and concrete helper review
-remain separate gates; this document is not an activation command.
+The selector change reaches black through the normal `nixos-rebuild switch`,
+which recreates only June's backend. Coordinate it with the parent: no backend
+deployment, long action or token refresh may be in flight. Keep the previous
+image locally until acceptance completes; rollback is a revert of the selector
+and another switch, with the same data.
 
 ## Digest-preserving publication workflow
 

@@ -3,7 +3,7 @@
   # What atlas boots with; the balloon can grow it back to atlasMemoryMiB
   # (`virsh setmem atlas <KiB> --live`) without a restart. 47 GiB since
   # 2026-11-05, so June production on black can have 8G (convex/
-  # june-prod-capacity.nix) and black keeps its pressure buffer.
+  # deployments.nix) and black keeps its pressure buffer.
   atlasCurrentMemoryMiB = 47 * 1024;
   atlasVCpus = 12;
   atlasRootSize = "120G";

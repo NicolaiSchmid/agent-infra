@@ -48,24 +48,20 @@
       CONVEX_MEMORY=${d.memory}
       CONVEX_CPUS=${d.cpus}
     '';
-  juneCapacity = import ./convex/june-prod-capacity.nix;
-  juneCapacityCompose = pkgs.writeText "june-prod-capacity.json" (builtins.toJSON {
-    services.backend = {
-      image = import ./convex/june-prod-image.nix;
-      # Headroom for reactive sidebar queries under shared-host load.
-      environment.DATABASE_UDF_USER_TIMEOUT_SECONDS = "5";
-      # User ceiling 1800s; local executor has another 5s of system overhead.
-      environment.NODE_ACTION_USER_TIMEOUT_SECS = "1800";
-      # Keep the HTTP request envelope above the 1805s executor deadline.
-      environment.HTTP_SERVER_TIMEOUT_SECONDS = "2100";
-      cgroup_parent = "${juneCapacity.slice}.slice";
-      mem_limit = juneCapacity.memory;
-      memswap_limit = juneCapacity.memory;
-      cpus = juneCapacity.cpus;
-      pids_limit = juneCapacity.pids;
+  # Everything else an entry sets (deployments.nix), as a Compose overlay;
+  # none for an entry that only sets the required fields.
+  overrides = d:
+    lib.optionalAttrs (d ? image) {inherit (d) image;}
+    // lib.optionalAttrs (d ? environment) {inherit (d) environment;}
+    // lib.optionalAttrs (d ? slice) {
+      cgroup_parent = "${d.slice}.slice";
+      memswap_limit = d.memory;
+      pids_limit = d.pids;
     };
-  });
-  compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml}${lib.optionalString (name == "june-prod") " -f ${juneCapacityCompose}"} --env-file ${envFile name d}";
+  overlay = name: d:
+    lib.optionalString (overrides d != {}) " -f ${pkgs.writeText "convex-${name}-overlay.json" (builtins.toJSON {services.backend = overrides d;})}";
+  compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml}${overlay name d} --env-file ${envFile name d}";
+  sliced = lib.filterAttrs (_: d: d ? slice) deployments;
   # The portal's mounts, generated: the script, its config, every admin key.
   portalDir = "${stateDir}/convex/portal";
   portalConfig = pkgs.writeText "convex-portal.json" (builtins.toJSON {
@@ -199,8 +195,8 @@
     "convex-${name}" = {
       description = "Self-hosted Convex ${name} (demo, no client data)";
       wantedBy = ["multi-user.target"];
-      after = ["docker.service" "convex-provision.service" "traefik.service"] ++ lib.optional (name == "june-prod") "${juneCapacity.slice}.slice";
-      requires = ["docker.service"] ++ lib.optional (name == "june-prod") "${juneCapacity.slice}.slice";
+      after = ["docker.service" "convex-provision.service" "traefik.service"] ++ lib.optional (d ? slice) "${d.slice}.slice";
+      requires = ["docker.service"] ++ lib.optional (d ? slice) "${d.slice}.slice";
       wants = ["convex-provision.service" "traefik.service"];
       reloadIfChanged = true;
       serviceConfig = {
@@ -239,18 +235,40 @@
     };
   };
 in {
-  systemd.slices.${juneCapacity.slice} = {
-    description = "June production backend only";
-    sliceConfig = {
-      MemoryMax = juneCapacity.memory;
-      MemoryHigh = juneCapacity.memory;
-      MemorySwapMax = "0";
-      CPUQuota = "${toString (juneCapacity.cpus * 100)}%";
-      TasksMax = juneCapacity.pids * 2;
-      CPUWeight = 20;
-      IOWeight = 20;
-    };
-  };
+  systemd.slices = lib.mapAttrs' (name: d:
+    lib.nameValuePair d.slice {
+      description = "Convex ${name} backend only";
+      sliceConfig = {
+        MemoryMax = d.memory;
+        MemoryHigh = d.memory;
+        MemorySwapMax = "0";
+        CPUQuota = "${toString (lib.toInt d.cpus * 100)}%";
+        TasksMax = d.pids * 2;
+        CPUWeight = 20;
+        IOWeight = 20;
+      };
+    })
+  sliced;
+
+  # Nix is the only source of the client-data units (these and routes.nix's).
+  # A drop-in, mask or unit under system.control (what `systemctl edit`,
+  # `set-property` and `mask` write) outranks the generated unit, so a later
+  # switch would change the unit and still run the hand-made command: June
+  # production kept a 2026-11-04 command through two deploys. Activation runs
+  # before switch-to-configuration reloads systemd, so the reload already
+  # sees the generated units alone.
+  system.activationScripts.convex-units-nix-only = let
+    units = ["convex-*" "routes.service*"] ++ map (d: "${d.slice}.slice*") (lib.attrValues sliced);
+  in ''
+    for dir in /etc/systemd/system.control /run/systemd/system.control; do
+      for entry in ${lib.concatMapStringsSep " " (u: "\"$dir\"/${u}") units}; do
+        if [ -e "$entry" ] || [ -L "$entry" ]; then
+          echo "removing hand-made systemd override $entry" >&2
+          rm -rf "$entry"
+        fi
+      done
+    done
+  '';
 
   systemd.tmpfiles.rules = [
     "d ${stateDir}/convex 0700 root root -"
