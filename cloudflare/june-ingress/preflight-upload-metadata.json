@@ -1,0 +1,10 @@
+{
+  "main_module": "preflight-worker.mjs",
+  "compatibility_date": "2026-11-04",
+  "bindings": [],
+  "observability": {
+    "enabled": false
+  },
+  "logpush": false,
+  "tail_consumers": []
+}
