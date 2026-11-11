@@ -11,6 +11,7 @@ in {
     ./libvirt.nix
     ./networking.nix
     ./storage-box.nix
+    ./storage-box-target.nix
     ./sops.nix
     ./phone-sbc.nix
     ./client-data.nix

@@ -5,6 +5,29 @@ instance/storage secrets and deployment source. This is **not an Atlas VM backup
 nor full E2B, ClickHouse, Garage, or host disaster recovery. Garage daily copies on
 Black are not off-host recovery. No disk deletion or repartition is needed here.
 
+## Activation work — 2026-11-11
+
+The operator selected the existing Mac SSH public key for payload encryption and
+supplied `u710483`. This is the parent account, not an assigned subaccount login.
+The configured repository therefore uses the parent path. Black's dedicated writer
+key must be forced to append-only Borg with `--restrict-to-repository
+/home/product-backup/repo`; it must not retain general SSH or file-transfer access.
+This replaces the previous subaccount activation dependency with an exact-repository
+key restriction on the supplied account. The Mac retains separate maintenance
+access. Remove temporary Atlas parent-account authorization after verification.
+
+The four active deployments derive from `hosts/black/convex/deployments.nix`;
+retired MODUS archives remain historical recovery material. On 2026-11-11 the
+existing remote repository passed a fresh full `borg check --verify-data`.
+The configuration now selects age payload encryption to the recorded Mac public
+key; this does not change the encryption of historical bootstrap archives.
+
+Deployment and fresh encrypted archive acceptance are pending. Independent Mac
+decryption/key escrow remains unverified. Pushover delivery remains unavailable
+without an application token, and no external dead-man monitor has been configured.
+The hourly host check can report stale archives locally but is not push delivery.
+Do not describe those remaining controls as complete.
+
 ## Provisioning status (2026-11-04)
 
 Storage Box #692297 (`atlas-backup`, BX11, HEL1-BX570) is provisioned at
