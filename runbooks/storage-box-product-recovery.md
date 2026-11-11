@@ -14,7 +14,7 @@ key must be forced to append-only Borg with `--restrict-to-repository
 /home/product-backup/repo`; it must not retain general SSH or file-transfer access.
 This replaces the previous subaccount activation dependency with an exact-repository
 key restriction on the supplied account. The Mac retains separate maintenance
-access. Remove temporary Atlas parent-account authorization after verification.
+access. Temporary Atlas parent-account authorization was revoked after verification; the Mac retains maintenance access.
 
 The four active deployments derive from `hosts/black/convex/deployments.nix`;
 retired MODUS archives remain historical recovery material. On 2026-11-11 the
@@ -22,8 +22,10 @@ existing remote repository passed a fresh full `borg check --verify-data`.
 The configuration now selects age payload encryption to the recorded Mac public
 key; this does not change the encryption of historical bootstrap archives.
 
-Deployment and fresh encrypted archive acceptance are pending. Independent Mac
-decryption/key escrow remains unverified. Pushover delivery remains unavailable
+Recurring encrypted backups are active. All four fresh remote archives contain only
+`payload.tar.age`, and a full remote Borg data check passed. The hourly freshness
+check passed after those writes. See [activation evidence](storage-box-acceptance-2026-11-11.md).
+Independent Mac decryption/key escrow remains unverified. Pushover delivery remains unavailable
 without an application token, and no external dead-man monitor has been configured.
 The hourly host check can report stale archives locally but is not push delivery.
 Do not describe those remaining controls as complete.
