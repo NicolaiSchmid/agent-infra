@@ -6,8 +6,10 @@
 # State sits on black's btrfs root under /var/lib/t3code. Since #28 the atlas
 # images are fully allocated, so the VM can no longer fill that root.
 #
-# Reachable at https://black.<tailnet> (Serve on black's own node, through
-# the same CORS shim as atlas) and via T3 Connect once linked (runbook).
+# Reachable at https://black.<tailnet>:8443 (Serve on black's own node,
+# through the same CORS shim as atlas) and via T3 Connect once linked. Not
+# :443: Traefik owns that port on black and already answers for
+# black.<tailnet> (its dashboard), so Serve there would take it over.
 {
   config,
   pkgs,
@@ -183,7 +185,7 @@ in {
     };
   };
 
-  # Serve on black's own tailnet node: https://black.<tailnet>.
+  # Serve on black's own tailnet node: https://black.<tailnet>:8443.
   systemd.services.t3code-tailscale-serve = {
     description = "Tailscale Serve for T3 Code on black";
     wantedBy = ["multi-user.target"];
@@ -197,7 +199,7 @@ in {
     };
     script = ''
       until ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1; do sleep 2; done
-      ${pkgs.tailscale}/bin/tailscale serve --bg --https=443 http://127.0.0.1:3774
+      ${pkgs.tailscale}/bin/tailscale serve --bg --https=8443 http://127.0.0.1:3774
     '';
   };
 }
