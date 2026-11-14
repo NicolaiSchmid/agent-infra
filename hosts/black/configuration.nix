@@ -15,6 +15,7 @@ in {
     ./sops.nix
     ./phone-sbc.nix
     ./client-data.nix
+    ./t3code.nix
   ];
 
   boot.loader.grub = {
