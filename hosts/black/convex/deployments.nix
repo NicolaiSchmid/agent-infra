@@ -47,6 +47,14 @@
         NODE_ACTION_USER_TIMEOUT_SECS = "1800";
         # Keep the HTTP request envelope above the 1805s executor deadline.
         HTTP_SERVER_TIMEOUT_SECONDS = "2100";
+        # The Node executor (local.cjs) inherits the backend's environment.
+        # Its default heap limit (2240 MiB with this image's Node 24) ran out
+        # during a deploy's analyze on 2026-11-13. Only modestly above it: the
+        # backend itself peaks near 5.4 GB anonymous, and the slice OOM-killed
+        # the whole backend at that level four times from 2026-11-08 to
+        # 2026-11-13, so a 4 GB heap would not fit in 8G. Getting more needs a
+        # larger slice.
+        NODE_OPTIONS = "--max-old-space-size=2560";
       };
     };
     # The MODUS AI token gateway. 1536m since 2026-11-09: its Node actions
