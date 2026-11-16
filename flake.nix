@@ -83,7 +83,7 @@
     darwinConfigurations.forge = nix-darwin.lib.darwinSystem {
       system = "aarch64-darwin";
       specialArgs = {inherit inputs;};
-      modules = [./hosts/forge/configuration.nix];
+      modules = [./hosts/forge/configuration.nix ./hosts/forge/prometheus-vm.nix];
     };
 
     checks.${system} = {
