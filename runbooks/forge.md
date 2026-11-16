@@ -35,23 +35,24 @@ T3 Code is available inside the Tailnet at:
 https://forge.takaya-buri.ts.net/
 ```
 
-Forge runs the T3 server from the nightly channel, pinned in
-`hosts/forge/t3code-app/` (atlas stays on the stable pin in dotfiles-nix). To
-bump it, set the version from `npm view t3 dist-tags` in `package.json`, run
-`bun install` in that directory, check `bun install --frozen-lockfile`, then
-switch and restart the daemon:
+Forge runs the T3 server on its pinned nightly channel, seeded from
+`hosts/forge/t3code-app/package.json`, under the shared protocol-3 service
+launcher (`modules/t3-runtime.nix`). The stable launcher is compatible with the
+nightly child and keeps Nix in charge of the launchd definition. The in-app
+updater owns later child versions in `~/.local/share/t3code/runtime/`.
+
+Nix switches can reload the changed launchd job. Run the switch from your Mac
+in a planned window; after changes to provider paths, restart explicitly if
+needed:
 
 ```bash
 sudo launchctl kickstart -k system/org.nixos.t3code
 ```
 
-Since the 0.1.1 nightlies the `t3` npm package is only a launcher with no
-dependencies. On first start of a new version it downloads that version's
-`darwin-arm64` executable from the GitHub release into
-`~/.local/share/t3code/runtime/versions/<version>`, checks it against the
-release's `SHA256SUMS`, and runs it. So the first start after a bump needs
-network access and takes longer. Old version folders are left there; delete
-them by hand.
+First adoption saves the stopped server's SQLite files and settings under
+`runtime/pre-launcher-backup.*`, then enables automatic thread recovery. A
+thread may resume after interruption, but background commands can be cancelled.
+See the [fleet rollout](agent-fleet-update-2026-11-16.md).
 
 Claude Code and Codex come from the same dotfiles-nix pins as the MacBook and
 are on the daemon's PATH. Their logins live in the `nschmid10049` home and are

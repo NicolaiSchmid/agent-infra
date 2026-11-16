@@ -10,10 +10,13 @@
   stateDir = "${homeDir}/.local/share/t3code";
   appDir = "${stateDir}/app";
   workspace = "${homeDir}/workspace";
-  # Forge runs the T3 server on the nightly channel (atlas stays on the stable
-  # pin in dotfiles-src). Bump with `bun install` in ./t3code-app after editing
-  # package.json, then verify `bun install --frozen-lockfile`.
-  manifest = ./t3code-app;
+  # Keep Forge on its existing nightly channel; stable launcher protocol 3
+  # remains compatible and leaves the Nix-owned launchd definition alone.
+  t3 = import ../../modules/t3-runtime.nix {
+    inherit pkgs;
+    baseDir = stateDir;
+    version = (builtins.fromJSON (builtins.readFile ./t3code-app/package.json)).dependencies.t3;
+  };
   # Agent CLIs that T3 Code shells out to. Same pins as the MacBook, from
   # dotfiles-nix, so forge, the Mac and atlas move together.
   aiApps = import "${inputs.dotfiles-src}/darwin/packages/ai-apps.nix" {inherit pkgs;};
@@ -59,13 +62,9 @@
   t3codeStart = pkgs.writeShellScript "forge-t3code-start" ''
     set -euo pipefail
     install -d -m 0755 "${appDir}" "${workspace}"
-    install -m 0644 "${manifest}/package.json" "${appDir}/package.json"
-    install -m 0644 "${manifest}/bun.lock" "${appDir}/bun.lock"
-    cd "${appDir}"
-    ${pkgs.bun}/bin/bun install --frozen-lockfile
-    exec ${pkgs.bun}/bin/bun "${appDir}/node_modules/t3/dist/bin.mjs" serve \
-      --mode web --host 127.0.0.1 --port 3773 --no-browser \
-      --base-dir "${stateDir}" "${workspace}"
+    ${t3.bootstrap}
+    cd "${workspace}"
+    exec ${t3.command}
   '';
 in {
   system.primaryUser = username;
@@ -130,6 +129,10 @@ in {
       EnvironmentVariables = {
         HOME = homeDir;
         T3CODE_HOME = stateDir;
+        T3CODE_MODE = "web";
+        T3CODE_HOST = "127.0.0.1";
+        T3CODE_PORT = "3773";
+        T3CODE_NO_BROWSER = "true";
         XDG_CONFIG_HOME = "${homeDir}/.config";
         PATH = lib.makeBinPath ([
             pkgs.bun
@@ -144,6 +147,8 @@ in {
       KeepAlive = true;
       RunAtLoad = true;
       ProcessType = "Interactive";
+      ExitTimeOut = 90;
+      AbandonProcessGroup = false;
       StandardOutPath = "${homeDir}/Library/Logs/t3code.log";
       StandardErrorPath = "${homeDir}/Library/Logs/t3code.error.log";
     };

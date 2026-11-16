@@ -34,5 +34,15 @@ jobs:
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/storage-box -p 'test_*.py'
           python3 scripts/checked-routing-step.test.py
+          python3 scripts/t3code-bootstrap.test.py
       - name: Check flake
         run: nix flake check --show-trace
+
+  darwin-agents:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - name: Build Forge configuration and release runtimes
+        run: nix build .#darwinConfigurations.forge.system --no-link --show-trace

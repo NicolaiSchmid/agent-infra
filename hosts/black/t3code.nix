@@ -14,7 +14,6 @@
   config,
   pkgs,
   lib,
-  inputs,
   ...
 }: let
   keys = import ../../modules/keys.nix;
@@ -23,8 +22,10 @@
   homeDir = "${stateDir}/home";
   workspace = "${stateDir}/workspace";
   tmpDir = "${stateDir}/tmp";
-  # Same pin as atlas so both hosts run one t3 release.
-  manifest = "${inputs.dotfiles-src}/darwin/agents/t3code-app";
+  t3 = import ../../modules/t3-runtime.nix {
+    inherit pkgs;
+    baseDir = stateDir;
+  };
 
   # Tools an agent needs to diagnose black and the atlas VM.
   opsTools = with pkgs; [
@@ -124,12 +125,16 @@ in {
       T3CODE_HOME = stateDir;
       XDG_CONFIG_HOME = "${homeDir}/.config";
       TMPDIR = tmpDir;
+      T3CODE_MODE = "web";
+      T3CODE_HOST = "127.0.0.1";
+      T3CODE_PORT = "3773";
+      T3CODE_NO_BROWSER = "true";
     };
 
     serviceConfig = {
       User = "nicolai";
       Group = "users";
-      Restart = "on-failure";
+      Restart = "always";
       RestartSec = 5;
 
       # Hard ceiling so a runaway agent here can never take memory from the
@@ -143,19 +148,11 @@ in {
       CPUWeight = 400;
       IOWeight = 400;
 
-      ExecStartPre = pkgs.writeShellScript "t3code-install" ''
-        set -euo pipefail
-        install -m644 "${manifest}/package.json" "${appDir}/package.json"
-        install -m644 "${manifest}/bun.lock" "${appDir}/bun.lock"
-        cd "${appDir}"
-        ${pkgs.bun}/bin/bun install --frozen-lockfile
-      '';
-
-      ExecStart = ''
-        ${pkgs.bun}/bin/bun "${appDir}/node_modules/t3/dist/bin.mjs" serve \
-          --mode web --host 127.0.0.1 --port 3773 --no-browser \
-          --base-dir "${stateDir}" "${workspace}"
-      '';
+      WorkingDirectory = workspace;
+      ExecStartPre = t3.bootstrap;
+      ExecStart = t3.command;
+      KillMode = "mixed";
+      TimeoutStopSec = 90;
     };
   };
 
@@ -194,7 +191,7 @@ in {
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      Restart = "on-failure";
+      Restart = "always";
       RestartSec = 30;
     };
     script = ''

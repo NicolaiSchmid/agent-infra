@@ -135,9 +135,27 @@ They may be carrying active work. Config changes that affect service
 environment, PATH, or runtime mounts should be applied in a planned window.
 
 `nixos-rebuild switch` therefore never restarts `t3code` on atlas
-(`restartIfChanged = false`). After a rebuild that changed the unit (new `t3`
+(`restartIfChanged = false`). After a rebuild that changed the unit (launcher
 pin, environment, PATH), finish the rollout with `systemctl restart t3code`
 on atlas once no agent work is in flight.
+
+Atlas, Black and Forge use the restart-aware T3 service launcher. Nix owns the
+service definition and protocol-3 launcher; T3 owns the active child version in
+`runtime/service-state.json`. The first adoption seeds a checksum-pinned release
+and backs up existing SQLite files and settings under
+`runtime/pre-launcher-backup.*`. Subsequent starts preserve the selected runtime
+and any pending update/rollback. The bootstrap enables automatic thread recovery;
+project-specific overrides can still opt out. Background commands and native
+subagents can be cancelled even when their parent thread resumes.
+
+Use the in-app updater for subsequent T3 server updates. Do not run `t3 service
+install` or `t3 update` against these Nix-managed services: those commands may
+install or rewrite an upstream user service. Nix updates to the provider CLIs
+and service environment still require a planned restart. Nix generation rollback
+does not roll back the T3-selected runtime or its migrated database.
+
+The [fleet update runbook](runbooks/agent-fleet-update-2026-11-16.md) gives the
+Mac-run build, switch, restart and verification commands for all four machines.
 
 Agent temp on atlas is `TMPDIR=/srv/agents-state/tmp` (state disk, aged after
 10 days); the root-disk `/tmp` is aged after 2 days and cleaned on boot. See

@@ -4,11 +4,11 @@
   "workspaces": {
     "": {
       "dependencies": {
-        "t3": "0.1.1-nightly.20261017.3238",
+        "t3": "0.1.10-nightly.20261116.4787",
       },
     },
   },
   "packages": {
-    "t3": ["t3@0.1.1-nightly.20261017.3238", "", { "bin": { "t3": "bin/t3.mjs" } }, "sha512-TtNWqq5qC/r2QynTYAi1mMI2wQdMiuTW4Goz+YVtjVVlPZSoIcc03harRs6UHSl19FmBynzVh894JK6FD3YuSw=="],
+    "t3": ["t3@0.1.10-nightly.20261116.4787", "", { "bin": { "t3": "bin/t3.mjs" } }, "sha512-0y8LCN7c39V/srgCRy6Name/3z00bniW3uf8HPTGIbxlR48Cg/DqSF7+NQBxnq8smvM7qzMmVmSovMVNAmqG7Q=="],
   }
 }
