@@ -3,7 +3,7 @@
 Prepared releases: Codex CLI **0.169.0** (including code-mode host), Claude Code
 **2.1.325**, T3 stable **0.1.9**, T3 nightly
 **0.1.10-nightly.20261116.4787**. MacBook keeps both desktop channels; Forge
-keeps nightly; Atlas and Black use stable. Codex Desktop is a separate package
+keeps nightly; Atlas moves to nightly; Black uses stable. Codex Desktop is a separate package
 and is not changed by this CLI update.
 
 Run these steps from the Mac, after both update PRs are merged and their final
@@ -97,8 +97,8 @@ ssh root@black "curl -fsS http://127.0.0.1:3773/.well-known/t3/environment | jq 
 ssh root@atlas "curl -fsS http://127.0.0.1:3773/.well-known/t3/environment | jq '{serverVersion, selfUpdate: .capabilities.serverSelfUpdate}'"
 ```
 
-Expect `boot-service` on all three, stable 0.1.9 on Atlas/Black and the pinned
-nightly on Forge. If a home already has a launcher-selected newer version,
+Expect `boot-service` on all three, stable 0.1.9 on Black and the pinned
+nightly on Forge and Atlas. If a home already has a launcher-selected newer version,
 startup preserves it. If it has an older selected version, use the in-app
 updater to select the prepared release; do not delete the service-state file.
 Confirm an eligible interrupted thread resumes after reconnecting. Do not
