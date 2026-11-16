@@ -20,6 +20,8 @@ in {
       ExecStart = lib.mkForce t3.command;
       KillMode = "mixed";
       TimeoutStopSec = 90;
+      # First adoption copies the ~55 GiB state databases in ExecStartPre.
+      TimeoutStartSec = "1h";
       Restart = lib.mkForce "always";
     };
   };

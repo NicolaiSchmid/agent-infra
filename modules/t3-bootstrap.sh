@@ -11,16 +11,31 @@ trap 'rm -rf "$staging_dir"' EXIT
 
 # First adoption is not an upstream update trial. Save the stopped server's
 # SQLite files and settings before the new runtime can migrate them.
-if [ ! -e "$state_file" ]; then
-  backup="$staging_dir/backup"
-  mkdir -m 700 "$backup"
+# The databases can be tens of GiB (Atlas), so copy them exactly once, refuse
+# to start rather than fill the disk, and keep a completed backup from an
+# earlier failed attempt instead of adding another. An interrupted copy only
+# leaves the fixed partial directory, which the next attempt replaces.
+if [ ! -e "$state_file" ] && ! compgen -G "$runtime_dir/pre-launcher-backup.*" >/dev/null; then
+  partial="$runtime_dir/.pre-launcher-backup.partial"
+  rm -rf "$partial"
+  files=()
   for file in "$state_dir"/userdata/*.sqlite "$state_dir"/userdata/*.sqlite-wal "$state_dir"/userdata/*.sqlite-shm "$state_dir"/userdata/settings.json; do
-    if [ -f "$file" ]; then cp -p "$file" "$backup/"; fi
+    if [ -f "$file" ]; then files+=("$file"); fi
   done
-  # A unique retained directory also makes retrying a failed adoption safe.
+  if [ "${#files[@]}" -gt 0 ]; then
+    need=$(du -cb -- "${files[@]}" | tail -n 1 | cut -f 1)
+    avail=$(df --output=avail -B1 "$runtime_dir" | tail -n 1 | tr -d ' ')
+    reserve=$((2 * 1024 * 1024 * 1024))
+    if [ $((need + reserve)) -gt "$avail" ]; then
+      echo "t3code-bootstrap: adoption backup needs $need bytes plus $reserve reserve, only $avail free in $runtime_dir" >&2
+      exit 1
+    fi
+  fi
+  mkdir -m 700 "$partial"
+  for file in "${files[@]}"; do cp -p "$file" "$partial/"; done
   saved_backup=$(mktemp -d "$runtime_dir/pre-launcher-backup.XXXXXX")
-  chmod 700 "$saved_backup"
-  cp -R "$backup/." "$saved_backup/"
+  rmdir "$saved_backup"
+  mv "$partial" "$saved_backup"
 fi
 
 # The requested fleet policy: eligible interrupted turns resume after restart.

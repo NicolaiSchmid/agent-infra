@@ -66,6 +66,22 @@ class BootstrapTests(unittest.TestCase):
         self.run_bootstrap()
         self.assertEqual(list((self.home / "runtime").glob("pre-launcher-backup.*")), backups)
 
+    def test_retry_replaces_partial_copy_and_keeps_completed_backup(self):
+        userdata = self.home / "userdata"
+        userdata.mkdir(parents=True)
+        (userdata / "statev2.sqlite").write_bytes(b"existing database")
+        partial = self.home / "runtime/.pre-launcher-backup.partial"
+        partial.mkdir(parents=True)
+        (partial / "statev2.sqlite").write_bytes(b"interrupted")
+        self.run_bootstrap()
+        backups = list((self.home / "runtime").glob("pre-launcher-backup.*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual((backups[0] / "statev2.sqlite").read_bytes(), b"existing database")
+        self.assertFalse(partial.exists())
+        self.state.unlink()
+        self.run_bootstrap()
+        self.assertEqual(list((self.home / "runtime").glob("pre-launcher-backup.*")), backups)
+
     def test_restart_and_new_nix_pin_preserve_update_and_rollback_state(self):
         self.run_bootstrap()
         for status in ("pending", "committed", "rolled-back", "failed"):
