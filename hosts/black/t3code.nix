@@ -191,7 +191,8 @@ in {
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      Restart = "always";
+      # systemd refuses Restart=always on oneshot units.
+      Restart = "on-failure";
       RestartSec = 30;
     };
     script = ''
