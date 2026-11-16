@@ -43,9 +43,10 @@ in {
       CPUWeight = 20;
       IOWeight = 10;
       CPUQuota = "400%";
-      MemoryHigh = "10G";
-      MemoryMax = "12G";
-      MemorySwapMax = "2G";
+      # Preserve the live recovery limits from the November memory incident.
+      MemoryHigh = "20G";
+      MemoryMax = "24G";
+      MemorySwapMax = "4G";
     };
   };
 
