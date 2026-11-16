@@ -1,7 +1,10 @@
 {pkgs, lib, ...}: let
+  # Atlas follows the nightly channel, like Forge; the stable launcher
+  # (protocol 3) stays compatible with the nightly child runtime.
   t3 = import ../../modules/t3-runtime.nix {
     inherit pkgs;
     baseDir = "/srv/agents-state/t3code";
+    version = "0.1.10-nightly.20261116.4787";
   };
 in {
   systemd.services.t3code = {

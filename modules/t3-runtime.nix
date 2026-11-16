@@ -9,7 +9,10 @@
       linux-x64 = "sha256-AUECUzXaM0dZzs2Ns0g+CXcvNgDKA2dGmFJOfZQpE2I=";
       darwin-arm64 = "sha256-fS64wGh7cMoDqdNUmDgYUtN5KYNYnoLR+xgxwI8LIwE=";
     };
-    "0.1.10-nightly.20261116.4787".darwin-arm64 = "sha256-QRj18ByAOwjzHis8InVdCM0yJgdtD8g0zswdIpPno04=";
+    "0.1.10-nightly.20261116.4787" = {
+      linux-x64 = "sha256-LJOlSHtc2Cl5JSH2Dk5J+gYSwbeTDNxfLJDnfvnF2hY=";
+      darwin-arm64 = "sha256-QRj18ByAOwjzHis8InVdCM0yJgdtD8g0zswdIpPno04=";
+    };
   };
   unpack = release: pkgs.runCommand "t3-runtime-${release}-${platform}" {
     nativeBuildInputs = [pkgs.gnutar pkgs.gzip];
