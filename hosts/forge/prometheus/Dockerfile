@@ -1,7 +1,7 @@
 # cli-proxy-api + pinned plugins. Plugins are trusted in-process code (they
 # see every credential), so each one is pinned by version + sha256 and was
 # source-reviewed before bumping.
-ARG CLI_PROXY_VERSION=v8.0.45
+ARG CLI_PROXY_VERSION=v8.0.75
 
 FROM debian:bookworm-slim AS plugins
 ARG TARGETARCH

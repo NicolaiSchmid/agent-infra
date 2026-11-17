@@ -58,6 +58,14 @@ in-process and see every credential, so review the source before bumping):
 
 After changing the Dockerfile: `docker compose build && docker compose up -d cli-proxy-api`.
 
+Upgrading CLIProxyAPI without dropping clients: tag the running image as a
+rollback (`docker tag prometheus-cli-proxy-api:local prometheus-cli-proxy-api:<old>-rollback`),
+build the new one under its own tag (`docker build --build-arg TARGETARCH=arm64 -t
+prometheus-cli-proxy-api:<new> .`; the VM has no buildx, so TARGETARCH is not set
+automatically), smoke-test it with a copy of config.yaml and an *empty* auth dir
+(no token refresh can rotate the live logins), then retag it as `:local` and
+`docker compose up -d --no-build --no-deps cli-proxy-api`.
+
 ## Sign in accounts
 
 The image also includes [Codex Auto Reset](https://github.com/JefferyZhang2019/cpa-plugin-codex-auto-reset)
