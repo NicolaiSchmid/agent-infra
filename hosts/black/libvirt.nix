@@ -30,10 +30,8 @@
       </ip>
     </network>
   '';
-  # discard='ignore': the images are fully allocated nodatacow files. Passing
-  # guest trims through punched holes into btrfs extents, and btrfs only frees
-  # an extent once all of it is unreferenced, so partly trimmed extents stayed
-  # allocated: 931G on disk for 709G of data on 2026-10-25.
+  # Let Atlas return large unused ranges with its hourly fstrim. Keep the
+  # guest capacity bounded; host services also need space on this filesystem.
   atlasXml = pkgs.writeText "atlas.xml" ''
     <domain type='kvm'>
       <name>atlas</name>
@@ -52,12 +50,12 @@
       <devices>
         <emulator>/run/libvirt/nix-emulators/qemu-system-x86_64</emulator>
         <disk type='file' device='disk'>
-          <driver name='qemu' type='raw' cache='none' io='native' discard='ignore'/>
+          <driver name='qemu' type='raw' cache='none' io='native' discard='unmap'/>
           <source file='${atlasRoot}'/>
           <target dev='vda' bus='virtio'/>
         </disk>
         <disk type='file' device='disk'>
-          <driver name='qemu' type='raw' cache='none' io='native' discard='ignore'/>
+          <driver name='qemu' type='raw' cache='none' io='native' discard='unmap'/>
           <source file='${atlasState}'/>
           <target dev='vdb' bus='virtio'/>
         </disk>
@@ -112,6 +110,7 @@ in {
     path = [
       pkgs.coreutils
       pkgs.libvirt
+      pkgs.gnused
       pkgs.qemu
     ];
     serviceConfig = {
@@ -132,6 +131,12 @@ in {
         --live --config >/dev/null 2>&1 || true
       if ! virsh dominfo atlas >/dev/null 2>&1; then
         virsh define ${atlasXml}
+      else
+        # Updating the template alone never changes an existing domain.
+        # Preserve its other settings, including memory and device addresses.
+        virsh dumpxml atlas --inactive > /run/atlas-domain-discard.xml
+        sed -i "s/discard='ignore'/discard='unmap'/g" /run/atlas-domain-discard.xml
+        virsh define /run/atlas-domain-discard.xml
       fi
       virsh autostart atlas
     '';
