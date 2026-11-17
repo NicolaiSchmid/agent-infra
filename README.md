@@ -34,10 +34,9 @@ directly to one provider or physical install.
 
 `forge` runs T3 Code and the self-hosted macOS/iOS GitHub Actions runners.
 Linux CI for `NicolaiSchmid/*` and `apex-cc` runs on Ubicloud managed runners
-(`runs-on: ubicloud-standard-N` in each workflow), not on these machines. The
-`forge-runner-watchdog` timer on atlas points each repository's
-`MACOS_RUNS_ON` variable at Forge while its macOS runners are online and at a
-GitHub-hosted macOS image otherwise.
+(`runs-on: ubicloud-standard-N` in each workflow), not on these machines.
+macOS jobs run on Forge through each repository's `MACOS_RUNS_ON` variable,
+which is set by hand (see `runbooks/forge.md`).
 
 ### Naming
 
