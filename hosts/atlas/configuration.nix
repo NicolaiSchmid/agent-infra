@@ -64,8 +64,11 @@ in {
     enable = true;
     interval = "hourly";
   };
-  systemd.services.fstrim.serviceConfig.ExecStart = lib.mkForce
-    "${pkgs.util-linux}/bin/fstrim --all --verbose --minimum 256M";
+  systemd.services.fstrim.serviceConfig.ExecStart = lib.mkForce [
+    ""
+    "${pkgs.util-linux}/bin/fstrim --all --verbose --minimum 64M"
+  ];
+  systemd.timers.fstrim.timerConfig.RandomizedDelaySec = lib.mkForce "5m";
 
   networking = {
     hostName = "atlas";
