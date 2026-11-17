@@ -29,8 +29,8 @@ PURGE_DAYS=${PURGE_DAYS:-7}
 PURGE_DRY_RUN=${PURGE_DRY_RUN:-$DRY_RUN}
 rc=0
 
-RUST=(-name target -o -name '*-target')
-WEB=("${RUST[@]}" -o -name node_modules -o -name .next -o -name dist -o -name build
+RUST=(-name target -o -name '*-target' -o -name target-nix)
+WEB=("${RUST[@]}" -o -name .build -o -name node_modules -o -name .next -o -name dist -o -name build
   -o -name .turbo -o -name .cache -o -name coverage -o -name out -o -name .vite)
 
 avail() { df -h --output=avail "$AGENTS" | tail -1 | tr -d ' '; }
@@ -79,12 +79,16 @@ recent() { written "$1" -mmin "-$QUIET_MIN"; }
 # names).
 deletable() {
   local parent=${1%/*} name=${1##*/}
-  case $name in *-target) [ -e "$1/CACHEDIR.TAG" ] || return 1 ;; esac
+  case $name in
+  *-target | target-nix) [ -e "$1/CACHEDIR.TAG" ] || return 1 ;;
+  .build) [ -f "$1/workspace-state.json" ] && [ -f "$1/build.db" ] || return 1 ;;
+  esac
   if git_ -C "$parent" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     [ -z "$(git_ -C "$parent" ls-files -- "$name" 2>/dev/null | head -1)" ] || return 1
     [ -e "$1/CACHEDIR.TAG" ] || git_ -C "$parent" check-ignore -q -- "$name"
   else
-    [ -e "$1/CACHEDIR.TAG" ]
+    [ -e "$1/CACHEDIR.TAG" ] ||
+      { [ "$name" = .build ] && [ -f "$1/workspace-state.json" ] && [ -f "$1/build.db" ]; }
   fi
 }
 
@@ -157,7 +161,7 @@ else
 fi
 echo "worktrees done, $(avail) free"
 
-# 2) Cargo output in the agents' scratch area, workspace checkouts and temp.
+# 2) Cargo and marked SwiftPM output in scratch areas, checkouts and temp.
 #    The tmpfiles age rules for these (configuration.nix) take days; cargo
 #    fills the disk in hours. A target dir is also kept while a process works
 #    anywhere in the crate around it. Other services' private /tmp and nix
@@ -165,7 +169,7 @@ echo "worktrees done, $(avail) free"
 scan_busy
 find "$WORKSPACE" "$AGENTS/tmp" /tmp -xdev \( -name .git -o -name node_modules -o -name .next -o -name .cache \
   -o -path '/tmp/systemd-private-*' -o -path '/tmp/nix-build-*' \) -prune \
-  -o -type d \( "${RUST[@]}" \) -prune -print0 2>/dev/null |
+  -o -type d \( "${RUST[@]}" -o -name .build \) -prune -print0 2>/dev/null |
   while IFS= read -r -d '' d; do
     in_use "${d%/*}" || in_use "$d" || recent "$d" || ! deletable "$d" || remove "$d"
   done || true
