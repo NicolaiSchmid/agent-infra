@@ -1,0 +1,14 @@
+# Overlay: docker compose -f docker-compose.yml -f dashboard/compose.yaml up -d dashboard
+services:
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    network_mode: service:tailscale
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - /opt/prometheus/dashboard:/data
+      - /opt/prometheus/dashboard-management-key:/run/secrets/management_key:ro
+    depends_on:
+      - tailscale
