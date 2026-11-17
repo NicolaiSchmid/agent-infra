@@ -20,7 +20,6 @@ in {
     ./sops.nix
     ./tower-syslog.nix
     ./tailscale.nix
-    ./forge-runner-watchdog.nix
     ./priorities.nix
     ./build-sweep.nix
     ./agent-checks.nix

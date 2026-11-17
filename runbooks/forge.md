@@ -138,20 +138,20 @@ cd ~/actions-runner-macos-SCOPE
 ### Runner selection from workflows
 
 The macOS jobs in june, fifthset, mietprofi, steno and ilovegrain do not
-hard-code labels. They read the `MACOS_RUNS_ON` repository variable, which the
-`forge-runner-watchdog` timer on atlas (`hosts/atlas/forge-runner-watchdog.sh`)
-keeps pointed at `["self-hosted","macOS","ARM64"]` while that repository's
-Forge macOS runners are online, and at the hosted image the workflow uses as
-its default otherwise (`macos-15`; `macos-26` for ilovegrain):
+hard-code labels. They read the `MACOS_RUNS_ON` repository variable, set by
+hand to `["self-hosted","macOS","ARM64"]` (Forge). When it is unset, the
+workflow falls back to its hosted default (`macos-15`; `macos-26` for
+ilovegrain):
 
 ```yaml
 runs-on: ${{ fromJSON(vars.MACOS_RUNS_ON || '"macos-15"') }}
 ```
 
-`journalctl -u forge-runner-watchdog` on atlas shows every flip. Add a
-repository to the `repos` table in the script when its workflows start reading
-`MACOS_RUNS_ON`. ilovegrain's `IOS_RELEASE_RUNS_ON` (release pinned to the
-`ios`-labelled runner) is set by hand and not managed by the watchdog.
+Nothing flips it automatically any more: if Forge is down, jobs queue until it
+is back. To send a repository to hosted runners temporarily, delete the
+variable (`gh variable delete MACOS_RUNS_ON -R <repo>`) and set it again
+afterwards. ilovegrain's `IOS_RELEASE_RUNS_ON` (release pinned to the
+`ios`-labelled runner) is likewise set by hand.
 zero-mobile and the wasc-io repositories hard-code Forge labels or carry their
 own default.
 
