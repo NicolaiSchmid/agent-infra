@@ -35,6 +35,15 @@ routing:
 oauth:
   auth-dir: "/root/.cli-proxy-api"
 
+upstream:
+  claude:
+    header-defaults:
+      # Pass T3 Code's real Claude Code headers through like the native `cli`
+      # entrypoint instead of cloaking them with the built-in claude-cli baseline.
+      # Without this, an old proxy baseline (2.1.280 in v8.0.45) got requests
+      # rejected for models that need a newer Claude Code (2026-11-16).
+      native-entrypoints: ["t3-code"]
+
 observability:
   usage:
     usage-statistics-enabled: true
