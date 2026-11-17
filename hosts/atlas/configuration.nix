@@ -26,6 +26,7 @@ in {
     ./docker-prune.nix
     ./t3code-launcher.nix
     ../../modules/agent-clis.nix
+    ../../modules/agent-skills.nix
     "${agentModules}/tailscale-uis.nix"
     "${agentModules}/home.nix"
     "${agentModules}/t3code.nix"
