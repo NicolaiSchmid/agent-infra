@@ -8,6 +8,7 @@
 in {
   imports = [
     ./disko.nix
+    ./disk-guard.nix
     ./libvirt.nix
     ./networking.nix
     ./storage-box.nix
