@@ -176,4 +176,6 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Client-data stack demo on black (Convex, Garage, E2B, Traefik)](runbooks/black-client-data-demo.md)
 - [Historical: one/domovoi to black/atlas migration](runbooks/one-to-black-migration.md)
 - [Phone SBC on black](runbooks/black-phone-sbc.md)
+- [Hosted workflow runner on black (E5)](runbooks/black-hosted-runner.md)
+- [Agent source, builder and artifact store on black (A1)](runbooks/black-agent-source.md)
 - [Secrets](secrets/README.md)

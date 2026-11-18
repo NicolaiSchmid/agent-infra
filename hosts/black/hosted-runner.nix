@@ -9,12 +9,9 @@
   runsc = import ../../modules/hosted-runner-runtime.nix {inherit pkgs;};
   # Bundle from the private eve-deployments CI; never fetch private source
   # using a credential in a Nix derivation. Provision this immutable file first.
-  release = {
-    revision = "98690a849440934094bc555765518c26ebff0e0d";
-    sha256 = "bc5f114f837e5afedb9fd73b226ac4cc462de2b1db41dc5a15168348f35e9231";
-  };
-  runner = "/var/lib/hosted-runner/releases/${release.revision}/runner.mjs";
-  checksum = pkgs.writeText "hosted-runner-checksum" "${release.sha256}  ${runner}\n";
+  pin = import ./eve-deployments.nix;
+  runner = "/var/lib/hosted-runner/releases/${pin.revision}/runner.mjs";
+  checksum = pkgs.writeText "hosted-runner-checksum" "${pin.runner.sha256}  ${runner}\n";
   instances = {
     june-dev = {enable = true;};
     # O2: test-data pilot first. Enabling prod requires a separate change
@@ -47,23 +44,25 @@
       # systemd 260 credentials are root-owned 0440. The runner requires its
       # own private regular file, so copy as the service user into /run only.
       install -m 0600 "$CREDENTIALS_DIRECTORY/runner-key" "/run/${user}/runner-key"
-      # Only release pins come from this root-provisioned credential. Authority,
+      # Only the environment pin comes from this root-provisioned credential
+      # (agent-source.nix reports the same one with every build). Authority,
       # owner and persistent paths are fixed here, independently per deployment.
+      # The runner takes any digest June admitted from the platform store and
+      # verifies it per run; no artifact digest is pinned here.
       jq -e --arg state ${lib.escapeShellArg state} \
         --arg owner ${lib.escapeShellArg "black-${name}"} \
-        --arg key "/run/${user}/runner-key" '
+        --arg key "/run/${user}/runner-key" \
+        --arg store ${lib.escapeShellArg "/var/lib/agent-artifacts/${name}"} '
+        if keys != ["environment"] then error("release.json holds only {environment}") else
         {
           mode: "target-poll",
           owner: $owner,
           lockDirectory: ($state + "/locks"),
           pollIntervalMs: 1500,
           controlPlane: {backend: "june", runnerKeyFile: $key},
-          artifact: {
-            source: "june", directory: ($state + "/artifacts"),
-            digest: .artifact.digest, entrypoint: .artifact.entrypoint
-          },
+          artifact: {source: "store", store: $store, directory: ($state + "/artifact-cache")},
           environment: .environment
-        }' "$CREDENTIALS_DIRECTORY/release.json" > "$EVE_RUNNER_CONFIG"
+        } end' "$CREDENTIALS_DIRECTORY/release.json" > "$EVE_RUNNER_CONFIG"
       chmod 0600 "$EVE_RUNNER_CONFIG"
     '';
     unitConfig = {
@@ -76,7 +75,8 @@
       Group = user;
       # Trusted host process only: Docker socket access is root-equivalent.
       # No wheel, login, provider credentials or Convex admin key.
-      SupplementaryGroups = ["docker"];
+      # agent-artifacts: read-only access to the platform store (agent-source.nix).
+      SupplementaryGroups = ["docker" "agent-artifacts"];
       LoadCredential = [
         "runner-key:/root/hosted-runner/${name}-runner.key"
         "release.json:/root/hosted-runner/${name}-release.json"

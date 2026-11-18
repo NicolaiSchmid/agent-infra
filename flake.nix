@@ -87,7 +87,7 @@
     };
 
     checks.${system} = {
-      storage-box-backup = pkgs.runCommand "storage-box-backup-tests" {nativeBuildInputs = [pkgs.python3 pkgs.age];} ''
+      storage-box-backup = pkgs.runCommand "storage-box-backup-tests" {nativeBuildInputs = [pkgs.python3 pkgs.age pkgs.git];} ''
         export PYTHONDONTWRITEBYTECODE=1
         cp -r ${./scripts/storage-box} "$TMPDIR/tests"
         python3 -m unittest discover -s "$TMPDIR/tests" -p 'test_*.py'
@@ -98,6 +98,9 @@
     };
 
     packages.${system} = {
+      # Built on black only, from the private source the operator provisions
+      # (runbooks/black-agent-source.md); public CI evaluates it but cannot build it.
+      agent-source-toolchain = self.nixosConfigurations.black.config.system.build.agentSourceToolchain;
       atlas-disko-images-script = self.nixosConfigurations.atlas.config.system.build.diskoImagesScript;
 
       install-atlas = pkgs.writeShellApplication {
