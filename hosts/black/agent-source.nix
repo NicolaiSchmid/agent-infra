@@ -101,6 +101,8 @@
       # Only so that docker0's address exists; the builder never uses Docker.
       after = ["docker.service"];
       requires = ["docker.service"];
+      # Come back with dockerd, like the hosted runner.
+      partOf = ["docker.service"];
       serviceConfig = {
         ExecStart = run "serve" name instance;
         RuntimeDirectory = "agent-source-${name}";

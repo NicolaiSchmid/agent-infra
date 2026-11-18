@@ -14,7 +14,7 @@
   npmDepsHash = "sha256-I7qC4awVQ9naCwXzqFb2TEqjFMqo280DcrMpSgm/VRg=";
   # The CI run's `native-runner` artifact for the same revision.
   runner = {
-    run = 44397284484;
+    run = "44397284484";
     sha256 = "1247a6c7b480b38d8d3c1a4ac17f8585b2376e6ae295f7c1530ac42ff626abd0";
   };
 }
