@@ -8,7 +8,8 @@ runner executes one delivery at a time (O4); this is a limit for a second firm.
 
 The trusted native process has a separate system user per deployment, only
 supplementary Docker access (root-equivalent), no login or Convex admin key.
-The key and release selection are systemd credentials. The key remains at
+The key and release selection are systemd credentials. The existing keys and parent directory were verified on black on 2026-11-18.
+The key remains at
 `/root/hosted-runner/<deployment>-runner.key`, root:root, 0600. Never copy it
 into a release JSON, Nix expression, command argument or environment file.
 The JSON credential has only public release pins. Systemd supplies an
@@ -45,7 +46,7 @@ blind Docker pruning or deleting recovery journals. The operational minimum
 for this rollout is 25 GiB free, then recheck after the build and image pull.
 This buffer is a deployment gate, not a disk quota.
 
-The runsc archive is about 62 MiB compressed and 161 MiB installed, plus the
+The runsc archive is about 72 MiB compressed and 162 MiB installed, plus the
 Nix closure (including Node 24, potentially shared). The runner bundle is about
 180 KB. A pinned Node image takes additional Docker space; inspect its actual
 unpacked size. The S2 sandbox image was measured at 368 MiB, but its final
@@ -79,6 +80,7 @@ bundle_dir=$(mktemp -d)
 gh run download "$EVE_RUN" --repo NicolaiSchmid/eve-deployments --name native-runner --dir "$bundle_dir"
 (cd "$bundle_dir" && sha256sum --check SHA256SUMS)
 test "$(sha256sum "$bundle_dir/runner.mjs" | cut -d' ' -f1)" = "$EVE_SHA256"
+ssh root@black 'test -d /root/hosted-runner; test -s /root/hosted-runner/june-dev-runner.key; test -s /root/hosted-runner/june-prod-runner.key'
 ssh root@black "install -d -m 0755 /var/lib/hosted-runner /var/lib/hosted-runner/releases /var/lib/hosted-runner/releases/$EVE_REV"
 scp "$bundle_dir/runner.mjs" root@black:/root/hosted-runner/runner.mjs.new
 ssh root@black "install -o root -g root -m 0444 /root/hosted-runner/runner.mjs.new /var/lib/hosted-runner/releases/$EVE_REV/runner.mjs && rm /root/hosted-runner/runner.mjs.new"
@@ -117,7 +119,7 @@ Run after both PRs are merged, CI is green and disk headroom is recovered.
 Set `INFRA_PR` to this infra PR's number. No fleet rebuild is needed.
 
 ```sh
-INFRA_PR=<agent-infra PR number>
+INFRA_PR=89
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
 ssh root@black 'df -h / /nix /var/lib/docker; docker system df; test "$(df --output=avail -k / | tail -1)" -ge 26214400'
