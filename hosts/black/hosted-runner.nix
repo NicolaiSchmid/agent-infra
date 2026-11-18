@@ -44,11 +44,14 @@
     preStart = ''
       sha256sum --check --status ${checksum}
       install -d -m 0700 "${state}/tmp"
+      # systemd 260 credentials are root-owned 0440. The runner requires its
+      # own private regular file, so copy as the service user into /run only.
+      install -m 0600 "$CREDENTIALS_DIRECTORY/runner-key" "/run/${user}/runner-key"
       # Only release pins come from this root-provisioned credential. Authority,
       # owner and persistent paths are fixed here, independently per deployment.
       jq -e --arg state ${lib.escapeShellArg state} \
         --arg owner ${lib.escapeShellArg "black-${name}"} \
-        --arg key "$CREDENTIALS_DIRECTORY/runner-key" '
+        --arg key "/run/${user}/runner-key" '
         {
           mode: "target-poll",
           owner: $owner,

@@ -12,8 +12,12 @@ The key and release selection are systemd credentials. The existing keys and par
 The key remains at
 `/root/hosted-runner/<deployment>-runner.key`, root:root, 0600. Never copy it
 into a release JSON, Nix expression, command argument or environment file.
-The JSON credential has only public release pins. Systemd supplies an
-owner-readable credential copy, compatible with the runner's private-file checks.
+The JSON credential has only public release pins. Systemd 260 supplies readable
+root-owned 0440 credentials. Pre-start runs as the service user and copies the
+key into `/run/hosted-runner-<deployment>/runner-key` with mode 0600, satisfying
+the runner's owner/private-file checks. The runtime directory is private and
+systemd removes it when the unit stops. No key value enters the environment,
+Nix store or logs.
 
 RPC is `EVE_JUNE_CONVEX_URL=https://june-dev.convex.modusservice.com`; HTTP
 actions use `EVE_JUNE_HTTP_URL=https://june-dev-site.convex.modusservice.com`.
@@ -71,6 +75,8 @@ are for the operator's authenticated workstation; they have not been run on blac
 Retain the artifact privately before GitHub's artifact retention expires.
 
 ```sh
+sh <<'PROVISION'
+set -eu
 EVE_REV=98690a849440934094bc555765518c26ebff0e0d
 EVE_RUN=44336554525
 EVE_SHA256=bc5f114f837e5afedb9fd73b226ac4cc462de2b1db41dc5a15168348f35e9231
@@ -80,10 +86,11 @@ bundle_dir=$(mktemp -d)
 gh run download "$EVE_RUN" --repo NicolaiSchmid/eve-deployments --name native-runner --dir "$bundle_dir"
 (cd "$bundle_dir" && sha256sum --check SHA256SUMS)
 test "$(sha256sum "$bundle_dir/runner.mjs" | cut -d' ' -f1)" = "$EVE_SHA256"
-ssh root@black 'test -d /root/hosted-runner; test -s /root/hosted-runner/june-dev-runner.key; test -s /root/hosted-runner/june-prod-runner.key'
+ssh root@black 'set -e; test -d /root/hosted-runner; test -s /root/hosted-runner/june-dev-runner.key; test -s /root/hosted-runner/june-prod-runner.key'
 ssh root@black "install -d -m 0755 /var/lib/hosted-runner /var/lib/hosted-runner/releases /var/lib/hosted-runner/releases/$EVE_REV"
 scp "$bundle_dir/runner.mjs" root@black:/root/hosted-runner/runner.mjs.new
 ssh root@black "install -o root -g root -m 0444 /root/hosted-runner/runner.mjs.new /var/lib/hosted-runner/releases/$EVE_REV/runner.mjs && rm /root/hosted-runner/runner.mjs.new"
+PROVISION
 ```
 
 ## Select the dev pilot release
@@ -109,28 +116,55 @@ waiting for cleanup, and preserving its state; unresolved custody must be
 reconciled with the old pins before changing them.
 
 ```sh
-scp june-dev-release.json root@black:/root/hosted-runner/june-dev-release.json.new
+scp june-dev-release.json root@black:/root/hosted-runner/june-dev-release.json.new &&
 ssh root@black 'install -o root -g root -m 0600 /root/hosted-runner/june-dev-release.json.new /root/hosted-runner/june-dev-release.json && rm /root/hosted-runner/june-dev-release.json.new'
 ```
 
 ## Night deployment and rollback
 
 Run after both PRs are merged, CI is green and disk headroom is recovered.
-Set `INFRA_PR` to this infra PR's number. No fleet rebuild is needed.
+No fleet rebuild is needed. Run the entire block as one command: the local
+shell aborts on failed merge checks, and one remote shell owns every disk
+check, build, image pull, snapshot and switch. Any failure prevents the switch,
+including space dropping below 25 GiB after the build or image pull. Do not
+extract the switch into a separate command.
 
 ```sh
+sh <<'DEPLOY'
+set -eu
 INFRA_PR=89
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
-ssh root@black 'df -h / /nix /var/lib/docker; docker system df; test "$(df --output=avail -k / | tail -1)" -ge 26214400'
-ssh root@black "nixos-rebuild build --flake github:NicolaiSchmid/agent-infra/$INFRA_REV#black"
-# Pre-pull only the exact selected images, after the disk gate above.
-ssh root@black 'docker pull "$(jq -er .environment.image /root/hosted-runner/june-dev-release.json)"'
-# Also pull the exact sandbox image from the bundle, if this release uses E4.
-ssh root@black 'test "$(df --output=avail -k / | tail -1)" -ge 26214400; readlink -f /nix/var/nix/profiles/system > /root/hosted-runner/pre-e5-system; docker ps --format "{{.Names}}" > /root/hosted-runner/pre-e5-containers'
+ssh root@black sh -s -- "$INFRA_REV" <<'REMOTE'
+set -eu
+infra_rev=$1
+require_space() {
+  available_kib=$(df --output=avail -k / | tail -1)
+  test "$available_kib" -ge 26214400 || {
+    echo 'Deployment stopped: black requires at least 25 GiB free.' >&2
+    exit 1
+  }
+}
+df -h / /nix /var/lib/docker
+docker system df
+require_space
+nixos-rebuild build --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
+require_space
+image=$(jq -er .environment.image /root/hosted-runner/june-dev-release.json)
+docker pull "$image"
+# For E4, pull the bundle's exact sandbox image here too, before the final gate.
+require_space
+readlink -f /nix/var/nix/profiles/system > /root/hosted-runner/pre-e5-system
+docker ps --format '{{.Names}}' > /root/hosted-runner/pre-e5-containers
 # NIGHT WINDOW ONLY: interrupts ALL Docker containers.
-ssh root@black "nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra/$INFRA_REV#black"
-ssh root@black 'systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-dev; docker info --format "{{json .Runtimes.runsc}}"; docker ps --format "{{.Names}}"; journalctl -u hosted-runner-june-dev -n 50 --no-pager; df -h /'
+nixos-rebuild switch --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
+systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-dev
+docker info --format '{{json .Runtimes.runsc}}'
+docker ps --format '{{.Names}}'
+journalctl -u hosted-runner-june-dev -n 50 --no-pager
+df -h /
+REMOTE
+DEPLOY
 ```
 
 Compare containers with `/root/hosted-runner/pre-e5-containers`; confirm June
@@ -146,7 +180,7 @@ credentials, private bundle and selected pins. Roll back to the saved system
 generation (a second dockerd restart also interrupts all containers):
 
 ```sh
-ssh root@black 'systemctl stop hosted-runner-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
+ssh root@black 'set -e; systemctl stop hosted-runner-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
 ```
 
 That restores the active runtime configuration. To restore the boot default too,
@@ -165,3 +199,19 @@ eve-deployments CI. No switch, runner start, image pull or real workflow has
 been performed on black by this change. Disk headroom, actual black/gVisor
 operation, June credentials/backend compatibility and live acceptance remain
 deployment checks.
+
+Focused regressions (no real deployment):
+
+```sh
+python3 scripts/hosted-runner-runbook.test.py
+# On Atlas, after downloading the pinned private bundle above:
+python3 scripts/hosted-runner-credential.test.py --runner /path/to/runner.mjs
+```
+
+The first check executes the actual deployment block with fake SSH, disk,
+Docker and Nix commands, including low initial/final space and command failures.
+It runs in public CI. The second uses a temporary systemd unit on Atlas,
+a synthetic key and inventory-only fake Docker. It verifies root-owned 0440
+credential input, the service-owned 0600 runtime copy, real packaged-runner
+readiness and clean idle shutdown. It requires passwordless sudo and the
+private CI artifact; public infra CI cannot download that private artifact.
