@@ -118,6 +118,38 @@ Until DNS exists, go through an SSH tunnel instead:
 `https://<name>.convex.modusservice.com`; HTTP actions are on the `-site`
 host.
 
+## Function log retention
+
+All four backends set `MAX_UDF_EXECUTION=20000` in the shared Compose
+template (`hosts/black/convex/compose.yaml`). The pinned upstream default is
+1,000. This is the number of completed function executions retained in RAM
+for the dashboard and function-log API, including their console output;
+it is not a time limit. At 50 completions/minute, 20,000 covers about
+6 hours 40 minutes. Higher traffic shortens that window. History starts
+empty after every backend restart or container recreation, and this change
+cannot recover logs already evicted.
+
+These entries consume backend memory within the existing container limits.
+Watch memory and OOM events after rollout, especially on the 768 MiB dev
+backend; reduce the count with a deployment `environment` override in
+`convex/deployments.nix` if necessary. Avoid increasing it to millions to
+simulate multi-day retention. Upstream implementation at our pinned revision:
+[`MAX_UDF_EXECUTION`](https://github.com/get-convex/convex-backend/blob/bb31399c8704ceb6c19003936f6e144375b2c3bc/crates/common/src/knobs.rs)
+and [`Inner::log_execution`](https://github.com/get-convex/convex-backend/blob/bb31399c8704ceb6c19003936f6e144375b2c3bc/crates/application/src/function_log.rs).
+
+Docker's separate backend stdout/stderr logs already rotate at 20 MB × 5
+files per container. `logrotate` cannot extend dashboard history; rotating
+Docker-managed files externally is unnecessary. For durable, multi-day
+function history, a separate authenticated function-log collector and
+bounded disk archive would be needed. Such an archive would not appear in
+the stock dashboard automatically.
+
+Deploy through the normal Nix switch on black. Compose recreates the
+backends to apply the environment, briefly interrupting service and clearing
+the old in-memory history. Verify `MAX_UDF_EXECUTION` on each running backend
+and, after sufficient traffic, verify the function-log API retains more than
+1,000 completions. Do not expect the full window immediately after rollout.
+
 ## Dashboard
 
 Open `https://convex.takaya-buri.ts.net` from the tailnet, sign in with
