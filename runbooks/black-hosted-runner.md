@@ -151,7 +151,7 @@ command.
 ```sh
 sh <<'DEPLOY'
 set -eu
-INFRA_PR=90
+INFRA_PR=91
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
 ssh root@black sh -s -- "$INFRA_REV" <<'REMOTE'
