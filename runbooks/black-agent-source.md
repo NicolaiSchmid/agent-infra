@@ -189,8 +189,10 @@ agent-infra PR:
    SHA-256 of its `native-runner` artifact's `runner.mjs` (check its
    `SHA256SUMS`).
 
-Then provision the new runner bundle and toolchain source, stop both
-services, wait for runner cleanup, and switch. A toolchain change changes the
+Then provision the new runner bundle and toolchain source, build and root
+the new toolchain before the switch (the night block's `nix build` line; the
+service refuses to start without it), stop both services, wait for runner
+cleanup, and switch. A toolchain change changes the
 toolchain identity: existing commits keep their recorded digests, new builds
 need new commits.
 

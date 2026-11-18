@@ -168,6 +168,9 @@ for file in /root/hosted-runner/june-dev-runner.key /root/hosted-runner/june-dev
   /root/agent-source/june-dev-source.key /root/agent-source/june-dev-builder.key; do
   test -s "$file" || { echo "Deployment stopped: $file is missing." >&2; exit 1; }
 done
+# The runner refuses any other shape, but only after the switch restarted Docker.
+jq -e 'keys == ["environment"]' /root/hosted-runner/june-dev-release.json > /dev/null ||
+  { echo 'Deployment stopped: june-dev-release.json must hold only {environment}.' >&2; exit 1; }
 df -h / /nix /var/lib/docker
 docker system df
 require_space
@@ -187,7 +190,13 @@ systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-d
 docker info --format '{{json .Runtimes.runsc}}'
 docker ps --format '{{.Names}}'
 # June dev's Convex container reaches the source API; without a key it answers 401.
-test "$(docker exec convex-june-dev-backend-1 curl -s -o /dev/null -w '%{http_code}' http://host.docker.internal:7421/v1/head)" = 401
+# The service hashes its toolchain before it listens: allow two minutes.
+for attempt in $(seq 60); do
+  code=$(docker exec convex-june-dev-backend-1 curl -s -o /dev/null -w '%{http_code}' http://host.docker.internal:7421/v1/head || true)
+  test "$code" = 401 && break
+  sleep 2
+done
+test "$code" = 401
 journalctl -u hosted-runner-june-dev -n 50 --no-pager
 journalctl -u agent-source-june-dev -n 20 --no-pager
 df -h /

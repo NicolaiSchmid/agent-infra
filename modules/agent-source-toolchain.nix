@@ -18,7 +18,8 @@
     hashMode = "recursive";
     message = ''
       ${name} is not in the Nix store. Add `git archive ${pin.revision}`
-      as described in runbooks/black-agent-source.md, "Provision the toolchain".
+      as described in runbooks/black-agent-source.md, "Before the night",
+      step 4 (Toolchain source).
     '';
   };
   npmDeps = pkgs.fetchNpmDeps {

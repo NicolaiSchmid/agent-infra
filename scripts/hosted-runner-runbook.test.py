@@ -78,13 +78,16 @@ test "${E5_FAIL:-}" != toolchain
 test "${E5_FAIL:-}" != snapshot || exit 1
 echo /nix/store/synthetic-previous-system
 ''',
-            "jq": "#!/bin/sh\necho node@sha256:synthetic-digest\n",
+            "jq": '''#!/bin/sh
+case "$*" in *keys*) test "${E5_FAIL:-}" != release || exit 1;; esac
+echo node@sha256:synthetic-digest
+''',
             "systemctl": "#!/bin/sh\nexit 0\n",
             "journalctl": "#!/bin/sh\nexit 0\n",
         }
         # Restrict PATH to fixtures plus the handful of harmless shell utilities
         # the block needs. A missing mock must never invoke real SSH or Nix.
-        for name in ["sh", "tail", "cat"]:
+        for name in ["sh", "tail", "cat", "seq", "sleep"]:
             (self.bin / name).symlink_to(shutil.which(name))
         for name, script in scripts.items():
             path = self.bin / name
@@ -127,7 +130,7 @@ echo /nix/store/synthetic-previous-system
         self.assertNotIn("nixos-rebuild switch", commands)
 
     def test_merge_build_pull_and_snapshot_failures_prevent_switch(self):
-        for failure in ["merge", "toolchain", "build", "pull", "snapshot"]:
+        for failure in ["merge", "release", "toolchain", "build", "pull", "snapshot"]:
             with self.subTest(failure=failure):
                 result, commands = self.execute(fail=failure, merged="false" if failure == "merge" else "true")
                 self.assertNotEqual(result.returncode, 0)
