@@ -58,12 +58,20 @@ in {
     "kernel.sysrq" = 1;
   };
 
-  # Both virtio disks are fully allocated nodatacow files on black with
-  # discard='ignore' (hosts/black/libvirt.nix), so trims never reach the host.
-  # Until 2026-10-25 they were sparse with discard=unmap and fstrim ran every
-  # 15 minutes; each trim punched holes into btrfs extents that btrfs could not
-  # free while any part stayed referenced, and black filled up anyway.
-  services.fstrim.enable = false;
+  # Return every freed guest block to Black each hour; the previous no-trim
+  # policy let write churn exhaust Black and pause Atlas even while the guest
+  # still had free space. No --minimum: with 64M the hourly runs trimmed only
+  # 0.1-0.6 GiB each, while one plain `fstrim -av` on 2026-11-19 gave Black
+  # 34G back (88G to 122G free); agent churn frees mostly small ranges.
+  services.fstrim = {
+    enable = true;
+    interval = "hourly";
+  };
+  systemd.services.fstrim.serviceConfig.ExecStart = lib.mkForce [
+    ""
+    "${pkgs.util-linux}/bin/fstrim --all --verbose"
+  ];
+  systemd.timers.fstrim.timerConfig.RandomizedDelaySec = lib.mkForce "5m";
 
   networking = {
     hostName = "atlas";
