@@ -211,13 +211,17 @@ Missed runs (Forge at the FileVault screen after a reboot) only delay pruning an
 are not reported.
 
 **"30 daily archives" is not a strict 30-day maximum.** Prune counts days that have
-an archive, so missed backup days push the oldest survivor past 30 days. One example
-is june-prod, which has no archives for 2026-11-17 and 2026-11-19. A series that
-stops receiving archives also keeps its last archives indefinitely. This applies to
-the retired `modus-dev`/`modus-prod` bootstrap archives from 2026-11-04 (0 records).
-The receipt's `over_age` list shows such survivors. Removing them needs an explicit
-operator decision (a one-off `borg delete` with retention credentials, or changing
-the rule).
+an archive, so missed backup days push the oldest survivor past 30 days. That
+matters for **june-prod**, the only deployment holding customer (Kanzlei) data. It
+has no archives for 2026-11-05..10 (before recurring activation), 2026-11-17 or
+2026-11-19. Even with daily backups from 2026-11-20, its 2026-11-04 bootstrap
+archives would survive until about 2026-12-13 (about 39 days), and later archives
+until about 32 days. A series that stops receiving archives also keeps its last
+archives indefinitely. The receipt's `over_age` list shows such survivors. A strict
+cap needs an explicit operator decision: a one-off `borg delete` with retention
+credentials, or changing the rule. The retired `modus-dev`/`modus-prod` archives
+(2026-11-04) hold no records, so they contain no customer data and do not affect
+the promise.
 
 ### Activate (operator, from the Mac)
 
@@ -268,22 +272,28 @@ after the same check.
 
 ### Other copies of product data
 
+Only june-prod holds customer data, checked 2026-11-19 by table names and record counts,
+not content. june-dev holds test data, and the modus-gateway deployments hold gateway
+usage metadata with no Kanzlei content (see the TOMs). The 30-day promise therefore
+binds the june-prod copies below; the others are listed for completeness.
+
 - Garage `NAME-backups/daily` on Black (`hosts/black/convex.nix`): the newest 14
   export ZIPs per deployment. That is well within 30 days while backups run (oldest
   on 2026-11-19: 2026-11-05 for june-prod, 2026-11-07 for the others). Deletion runs
   only after a successful export, so a stalled deployment keeps its last 14
   indefinitely. This is not off-host recovery.
-- Garage `NAME-exports`: Convex's own snapshot-export objects, one per daily backup
-  plus any manual export. Nothing in this repository prunes them, and Convex had
-  removed none by 2026-11-19. On 2026-11-19 the oldest are 2026-10-30
-  (june-dev, 23 objects), 2026-10-31 (june-prod, 31), and 2026-11-01
-  (modus-gateway-dev/prod, 22 each). They pass 30 days from 2026-11-29 onward.
-- Garage `NAME-snapshot-imports`: migration import uploads. june-dev has 3 from
-  2026-10-30 and june-prod has 1 from 2026-11-03, which is a full production
-  snapshot. They pass 30 days on 2026-11-29 and 2026-12-03. Both modus-gateway
-  buckets are empty.
-- Borg archives from before age wrapping (2026-11-04 bootstrap) follow the same
-  rule. Retired `modus-dev`/`modus-prod` are covered in the caveat above.
+- Garage `june-prod-exports`: **customer data, not pruned**. These are Convex's own
+  snapshot-export objects, one per daily backup plus any manual export. Nothing in this
+  repository prunes them, and Convex had removed none by 2026-11-19. 31 objects: the
+  ones from 2026-10-31..11-02 are empty (906 bytes, before the migration), and full
+  production exports start 2026-11-03. Those pass 30 days on **2026-12-03**. The same
+  unpruned growth applies to the other deployments' `-exports` buckets, which hold no
+  customer data.
+- Garage `june-prod-snapshot-imports`: **customer data, not pruned**. It holds one
+  214 MB full production snapshot from the 2026-11-03 migration, which passes 30 days
+  on **2026-12-03**. june-dev's three imports (2026-10-30) are 23–1,917-byte test
+  fixtures, and the modus-gateway buckets are empty.
+- Borg: june-prod's 2026-11-04 bootstrap archives are covered in the caveat above.
 
 ## Isolated restore acceptance (required before claiming recoverability)
 

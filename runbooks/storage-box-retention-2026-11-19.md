@@ -40,23 +40,22 @@ Observed while doing this:
   at 03:38 CET because the backend did not accept connections on 127.0.0.1:13220.
   `product-backup-health` has reported `Missing/stale off-host backup: june-prod`
   since that afternoon. No push delivery exists, so only the journal shows it.
-- The retired `modus-dev`/`modus-prod` series are never pruned by `--keep-daily`
-  (each has no newer archives). They pass 30 days on 2026-12-04 and need an operator
-  decision (see the runbook caveat).
+- Only june-prod holds customer (Kanzlei) data. This was checked by table names
+  and record counts in the newest exports, not content. june-dev holds test data,
+  and the modus-gateway deployments hold gateway usage metadata. Retired
+  `modus-dev`/`modus-prod` hold no records.
+- Because of its gaps (2026-11-05..10, 11-17, 11-19), june-prod's 2026-11-04 bootstrap
+  archives would survive `--keep-daily 30` until about 2026-12-13 (about 39 days).
 
 ## Other copies checked (Black Garage, 2026-11-19)
 
-| Bucket | Objects | Oldest | Within 30 days? |
-| --- | --- | --- | --- |
-| june-dev-backups | 14 | 2026-11-07 | yes, newest 14 kept |
-| june-prod-backups | 14 | 2026-11-05 | yes, newest 14 kept |
-| modus-gateway-dev-backups / -prod-backups | 14 / 14 | 2026-11-07 | yes |
-| june-dev-exports | 23 | 2026-10-30 | no pruning; over 30 days from 2026-11-29 |
-| june-prod-exports | 31 | 2026-10-31 | no pruning; over 30 days from 2026-11-30 |
-| modus-gateway-dev-exports / -prod-exports | 22 / 22 | 2026-11-01 | no pruning; over 30 days from 2026-12-01 |
-| june-dev-snapshot-imports | 3 | 2026-10-30 | over 30 days from 2026-11-29 |
-| june-prod-snapshot-imports | 1 | 2026-11-03 | over 30 days from 2026-12-03 |
-| modus-gateway-*-snapshot-imports | 0 | — | — |
+| Bucket | Customer data | Objects | Oldest with customer data | Within 30 days? |
+| --- | --- | --- | --- | --- |
+| june-prod-backups | yes | 14 | 2026-11-05 | yes, newest 14 kept |
+| june-prod-exports | yes | 31 | 2026-11-03 (10-31..11-02 are empty, 906 bytes) | no pruning; over 30 days on 2026-12-03 |
+| june-prod-snapshot-imports | yes | 1 (214 MB) | 2026-11-03 | no pruning; over 30 days on 2026-12-03 |
+| june-dev-* | no (test data; imports 23–1,917-byte fixtures) | 14 / 23 / 3 | — | not bound |
+| modus-gateway-*-* | no (usage metadata) | 14 / 22 / 0 each | — | not bound |
 
 `/var/lib/product-backup/bootstrap` on Black is empty. Its Borg cache (112K) holds
 no payload.
