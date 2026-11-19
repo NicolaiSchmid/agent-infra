@@ -3,8 +3,9 @@
   # What atlas boots with; the balloon can grow it back to atlasMemoryMiB
   # (`virsh setmem atlas <KiB> --live`) without a restart. 47 GiB since
   # 2026-11-05, so June production on black can have 8G (convex/
-  # deployments.nix) and black keeps its pressure buffer.
-  atlasCurrentMemoryMiB = 47 * 1024;
+  # deployments.nix) and black keeps its pressure buffer. 43 GiB since
+  # 2026-11-19 for June production's 12G; atlas used 10 of 45 GiB then.
+  atlasCurrentMemoryMiB = 43 * 1024;
   atlasVCpus = 12;
   atlasRootSize = "120G";
   # 750G, not 1000G: black has 953G of btrfs RAID1, and a guest disk larger
