@@ -103,18 +103,27 @@ forge-macos-nicolaischmid-de
 forge-macos-ilovegrain
 forge-macos-ilovegrain-2
 forge-macos-zero-mobile
+forge-macos-steno
 ```
 
 steno's runners (1 Linux + 4 macOS) were removed on 2026-10-27: steno is
 public (hosted macOS is free) and forge now hosts the prometheus hub, whose
-credentials any job on forge could read. Fork PRs on steno need approval for
-all external contributors. History: steno had four macOS runners because its Swift CI runs two macOS jobs per
+credentials any job on forge could read. On 2026-11-19 one macOS runner,
+`forge-macos-steno`, came back at Nicolai's request because hosted macOS
+capacity was stalling releases; steno's Linux jobs stay on Ubicloud. The
+safeguard is the repository's fork PR policy: approval is required for all
+external contributors (`gh api repos/NicolaiSchmid/steno/actions/permissions/fork-pr-contributor-approval`
+must say `all_external_contributors`). History: steno had four macOS runners because its Swift CI runs two macOS jobs per
 push and its agents open many pull requests at once; on 2026-09-28 ten runs
 were queued behind two runners. Additional runners for a scope are plain
 copies of an existing runner directory (`rsync -a --exclude _work --exclude
 _diag --exclude '.runner' --exclude '.runner_migrated' --exclude '.credentials*'
 --exclude .env --exclude .path --exclude .service`), registered under the
-`-N` name with the same labels. A copied `.runner_migrated` makes `config.sh`
+`-N` name with the same labels. The template's `bin` and `externals` are
+absolute symlinks into its own directory (`bin -> ~/actions-runner-macos-june/bin.2.338.2`);
+repoint them at the copy (`ln -sfn bin.2.338.2 bin`, same for `externals`)
+before `config.sh`, or it reads the template's `.runner` and refuses with
+"already configured". A copied `.runner_migrated` makes `config.sh`
 refuse with "already configured"; a new repository's runner is copied the
 same way (forge-macos-ilovegrain was, 2026-10-12). Every macOS runner runs as `nschmid10049`; steno's workflow keeps
 build products per runner under `~/Library/Caches/steno-ci/<runner name>/`.
