@@ -9,8 +9,12 @@
   names = builtins.attrNames (import ./convex/deployments.nix).deployments;
   runner = pkgs.writeShellApplication {
     name = "product-backup";
-    runtimeInputs = [pkgs.borgbackup pkgs.age pkgs.openssh pkgs.python3 pkgs.util-linux config.virtualisation.docker.package pkgs.systemd];
+    runtimeInputs = [pkgs.borgbackup pkgs.age pkgs.git pkgs.openssh pkgs.python3 pkgs.util-linux config.virtualisation.docker.package pkgs.systemd];
     text = ''
+      extra=()
+      case "$1" in
+        ${lib.concatStrings (lib.mapAttrsToList (name: repository: "${name}) extra=(--agent-source ${lib.escapeShellArg repository}) ;;\n") cfg.agentSourceRepositories)}
+      esac
       export BORG_REPO=${lib.escapeShellArg cfg.repository}
       export BORG_PASSCOMMAND="cat /run/secrets/product-backup/passphrase"
       export BORG_RSH="ssh -i /run/secrets/product-backup/writer-key -p 23 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${pkgs.writeText "storage-box-known-hosts" cfg.knownHosts}"
@@ -22,7 +26,7 @@
       )}
       export BORG_CACHE_DIR=/var/lib/product-backup/cache
       export BORG_SECURITY_DIR=/var/lib/product-backup/security
-      exec flock -w 7200 /var/lib/product-backup/lock python3 ${../../scripts/storage-box/backup.py} "$@" --capture-runtime ${lib.optionalString (cfg.publicRecipient != "") "--age-recipient-file ${pkgs.writeText "product-backup-public-recipient" cfg.publicRecipient}"} --state /var/lib/product-backup --secrets /var/lib/client-data/secrets --config ${../..}
+      exec flock -w 7200 /var/lib/product-backup/lock python3 ${../../scripts/storage-box/backup.py} "$@" "''${extra[@]}" --capture-runtime ${lib.optionalString (cfg.publicRecipient != "") "--age-recipient-file ${pkgs.writeText "product-backup-public-recipient" cfg.publicRecipient}"} --state /var/lib/product-backup --secrets /var/lib/client-data/secrets --config ${../..}
     '';
   };
 in {
@@ -32,6 +36,11 @@ in {
       type = lib.types.str;
       default = "";
       description = "Optional age or SSH public recipient; keep its private key off the writer";
+    };
+    agentSourceRepositories = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {};
+      description = "Deployment name to the agent source repository bundled into its backup";
     };
     pushover.enable = lib.mkEnableOption "Pushover alerts (requires an existing application token and user key)";
     repository = lib.mkOption {

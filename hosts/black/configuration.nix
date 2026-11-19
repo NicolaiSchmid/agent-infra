@@ -16,6 +16,7 @@ in {
     ./phone-sbc.nix
     ./client-data.nix
     ./hosted-runner.nix
+    ./agent-source.nix
     ./t3code.nix
   ];
 

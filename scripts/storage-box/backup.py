@@ -24,6 +24,28 @@ def inspect_export(path):
                 'uncompressed_bytes': sum(i.file_size for i in archive.infolist())}
 
 
+def bundle_repository(repository, target):
+    """Bundle a bare git repository as its owner; root never runs git on it."""
+    if not repository.is_dir():
+        return {'agent_source': 'absent'}
+    owner = repository.stat()
+    git = ['git', '-c', 'core.hooksPath=/dev/null', '-C', str(repository)]
+    if owner.st_uid != os.geteuid():
+        git = ['setpriv', f'--reuid={owner.st_uid}', f'--regid={owner.st_gid}', '--clear-groups', *git]
+    env = {'PATH': os.environ['PATH'], 'HOME': '/nonexistent',
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null'}
+    if not subprocess.check_output([*git, 'for-each-ref'], env=env).strip():
+        return {'agent_source': 'empty'}
+    with target.open('wb') as output:
+        subprocess.run([*git, 'bundle', 'create', '-', '--all'], env=env, stdout=output, check=True)
+    # A full bundle lists its heads without a repository.
+    subprocess.run(['git', 'bundle', 'list-heads', str(target)], env=env,
+                   stdout=subprocess.DEVNULL, check=True)
+    with target.open('rb') as source:
+        digest = hashlib.file_digest(source, 'sha256').hexdigest()
+    return {'agent_source': 'bundled', 'agent_source_sha256': digest}
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('deployment')
@@ -33,6 +55,9 @@ def main():
         p.add_argument('--' + name, required=True, type=Path)
     p.add_argument('--capture-runtime', action='store_true')
     p.add_argument('--age-recipient-file', type=Path)
+    # The deployment's agent source repository (hosts/black/agent-source.nix).
+    # Artifacts are not backed up: they are rebuilt from source.
+    p.add_argument('--agent-source', type=Path)
     a = p.parse_args()
     os.umask(0o077)
     repository = json.loads(subprocess.check_output(['borg', 'info', '--json']))
@@ -80,12 +105,16 @@ def main():
             references = set(re.findall(r"/(?:nix/store|var/lib/client-data)/[^\s;\"']+", unit.decode()))
         else:
             references = set()
+        if a.agent_source:
+            metrics.update(bundle_repository(a.agent_source, work / 'agent-source.bundle'))
         with tarfile.open(work / 'recovery.tar', 'w') as tar:
             # Each deployment's env already contains its scoped Garage key.
             # Shared host/admin secrets are outside product recovery authority.
             for secret in required:
                 tar.add(secret, arcname='secrets/' + secret.name)
             tar.add(a.config, arcname='agent-infra')
+            if metrics.get('agent_source') == 'bundled':
+                tar.add(work / 'agent-source.bundle', arcname='agent-source/repo.bundle')
             if a.capture_runtime:
                 tar.add(runtime, arcname='runtime')
                 # Only files named by the service, never state directories,

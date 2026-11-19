@@ -1,6 +1,10 @@
 # Hosted workflow runner on black (E5)
 
-Prepared on 2026-11-18; **not deployed**. The service module enables
+Prepared on 2026-11-18; **not deployed**. Since A1 (2026-11-18) the runner
+reads bundles from the platform's artifact store on black instead of
+downloading one pinned bundle from June; the store, its source repository and
+builder are in [black-agent-source.md](black-agent-source.md), and both go
+live in the one night deployment below. The service module enables
 `hosted-runner-june-dev` at boot and defines `hosted-runner-june-prod` without a
 boot dependency. Do not start prod manually: pilot acceptance and the decision
 about real client data on black must come first (O2). Use test data only. Each
@@ -25,8 +29,11 @@ Prod uses the corresponding `june-prod` names. The runner key is passed by
 `controlPlane.runnerKeyFile`, never an environment variable.
 
 Persistent state is `/var/lib/hosted-runner-june-dev` (prod has its own path):
-`locks/` contains flock files and dirty/recovery journals, `artifacts/` is the
-digest-checked June cache, and `tmp/` contains broker sockets. Do not delete
+`locks/` contains flock files and dirty/recovery journals, `artifact-cache/` is
+the runner's private cache of bundles unpacked from the store (each verified by
+digest), and `tmp/` contains broker sockets. The runner reads
+`/var/lib/agent-artifacts/<deployment>` read-only through group
+`agent-artifacts`. Do not delete
 these paths to clear a failed restart. The unit preserves the flock helper on
 SIGTERM and waits for confirmed cleanup; stop has no timeout. A stuck cleanup
 requires operator inspection, not automatic deletion of evidence. Ten failed
@@ -68,18 +75,22 @@ can delay a later switch; investigate a stuck stop before forcing anything.
 ## Provision the private native bundle
 
 The public infra repository must not vendor the private eve-deployments source.
-The unit verifies a SHA-256-pinned bundle before each start. PR
-https://github.com/NicolaiSchmid/eve-deployments/pull/105 supplies that CI artifact.
-Merge both PRs through GitHub merge commits before deployment. These commands
-are for the operator's authenticated workstation; they have not been run on black.
-Retain the artifact privately before GitHub's artifact retention expires.
+The unit verifies a SHA-256-pinned bundle before each start. The pin (revision,
+CI run, SHA-256) lives in `hosts/black/eve-deployments.nix`, shared with the
+agent-source toolchain; the eve-deployments CI run's `native-runner` artifact
+supplies the bundle. The runner reads the platform store from eve-deployments
+E6 (PR https://github.com/NicolaiSchmid/eve-deployments/pull/109) on. These
+commands run from an agent-infra checkout at the merged revision on the
+operator's authenticated workstation; they have not been run on black. Retain
+the artifact privately before GitHub's artifact retention expires.
 
 ```sh
 sh <<'PROVISION'
 set -eu
-EVE_REV=98690a849440934094bc555765518c26ebff0e0d
-EVE_RUN=44336554525
-EVE_SHA256=bc5f114f837e5afedb9fd73b226ac4cc462de2b1db41dc5a15168348f35e9231
+pin=hosts/black/eve-deployments.nix
+EVE_REV=$(nix eval --raw -f "$pin" revision)
+EVE_RUN=$(nix eval --raw -f "$pin" runner.run)
+EVE_SHA256=$(nix eval --raw -f "$pin" runner.sha256)
 test "$(gh api repos/NicolaiSchmid/eve-deployments/actions/runs/$EVE_RUN --jq .head_sha)" = "$EVE_REV"
 test "$(gh api repos/NicolaiSchmid/eve-deployments/actions/runs/$EVE_RUN --jq .conclusion)" = success
 bundle_dir=$(mktemp -d)
@@ -93,27 +104,30 @@ ssh root@black "install -o root -g root -m 0444 /root/hosted-runner/runner.mjs.n
 PROVISION
 ```
 
-## Select the dev pilot release
+## Select the environment pin
 
-Select the CI-uploaded test workflow in June dev first. No release has been
-chosen by E5. Copy its actual artifact digest, entrypoint and environment
-identity into a local `june-dev-release.json` with this shape:
+The runner no longer pins an artifact: June's admission pins the digest per
+run, and the runner reads that digest from the store and verifies it. The
+release JSON holds only the environment pin, and the agent-source builder
+reports the same file's pin with every build, so builds and runs agree. The
+runner's pre-start refuses any other field, including a stale `artifact`
+block. Write a local `june-dev-release.json` with exactly this shape:
 
 ```json
 {
-  "artifact": {"digest": "sha256:<uploaded bundle digest>", "entrypoint": "<bundle entrypoint>"},
-  "environment": {"image": "node@sha256:<pinned image digest>", "digest": "sha256:<June release environment digest>"}
+  "environment": {"image": "node@sha256:<pinned image digest>", "digest": "sha256:<environment digest>"}
 }
 ```
 
 The environment digest is the runner's `targetEnvironmentDigest(image)`, not
-the image digest. Use the value admitted with the June release. For an E4
+the image digest; eve-deployments `docs/agent-source.md` shows it. For an E4
 sandbox release, its bundle also pins the sandbox image; pre-pull that exact
-image as well. Never substitute a mutable tag. The runner downloads the June
-bundle by digest; it does not build customer code on black. Missing or invalid
-selection fails startup. Replacing the selection requires stopping the runner,
-waiting for cleanup, and preserving its state; unresolved custody must be
-reconciled with the old pins before changing them.
+image as well. Never substitute a mutable tag. Neither the runner nor the
+builder fetches anything at run time; builds run offline in gVisor. Missing or
+invalid selection fails startup. Replacing the pin requires stopping the runner
+and the agent-source service, waiting for cleanup, and preserving their state;
+unresolved custody must be reconciled with the old pin before changing it.
+Builds made under the old pin report the old environment and need a new commit.
 
 ```sh
 scp june-dev-release.json root@black:/root/hosted-runner/june-dev-release.json.new &&
@@ -122,17 +136,22 @@ ssh root@black 'install -o root -g root -m 0600 /root/hosted-runner/june-dev-rel
 
 ## Night deployment and rollback
 
-Run after both PRs are merged, CI is green and disk headroom is recovered.
-No fleet rebuild is needed. Run the entire block as one command: the local
-shell aborts on failed merge checks, and one remote shell owns every disk
-check, build, image pull, snapshot and switch. Any failure prevents the switch,
-including space dropping below 25 GiB after the build or image pull. Do not
-extract the switch into a separate command.
+E5 and A1 go live together, in one agreed night window, June dev only. Before
+the window, by day and without touching services: the runner bundle and the
+environment pin above, the agent-source keys and toolchain source
+([black-agent-source.md](black-agent-source.md), "Before the night"), and the
+June dev environment variables. Run after the PR is merged, CI is green and
+disk headroom is recovered. No fleet rebuild is needed. Run the entire block
+as one command: the local shell aborts on failed merge checks, and one remote
+shell owns every credential and disk check, build, image pull, snapshot and
+switch. Any failure prevents the switch, including space dropping below 25 GiB
+after the builds or image pull. Do not extract the switch into a separate
+command.
 
 ```sh
 sh <<'DEPLOY'
 set -eu
-INFRA_PR=89
+INFRA_PR=91
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
 ssh root@black sh -s -- "$INFRA_REV" <<'REMOTE'
@@ -145,9 +164,18 @@ require_space() {
     exit 1
   }
 }
+for file in /root/hosted-runner/june-dev-runner.key /root/hosted-runner/june-dev-release.json \
+  /root/agent-source/june-dev-source.key /root/agent-source/june-dev-builder.key; do
+  test -s "$file" || { echo "Deployment stopped: $file is missing." >&2; exit 1; }
+done
+# The runner refuses any other shape, but only after the switch restarted Docker.
+jq -e 'keys == ["environment"]' /root/hosted-runner/june-dev-release.json > /dev/null ||
+  { echo 'Deployment stopped: june-dev-release.json must hold only {environment}.' >&2; exit 1; }
 df -h / /nix /var/lib/docker
 docker system df
 require_space
+# Fails unless the toolchain source was added by day; roots the result.
+nix build --out-link /nix/var/nix/gcroots/agent-source-toolchain "github:NicolaiSchmid/agent-infra/$infra_rev#agent-source-toolchain"
 nixos-rebuild build --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
 require_space
 image=$(jq -er .environment.image /root/hosted-runner/june-dev-release.json)
@@ -158,10 +186,19 @@ readlink -f /nix/var/nix/profiles/system > /root/hosted-runner/pre-e5-system
 docker ps --format '{{.Names}}' > /root/hosted-runner/pre-e5-containers
 # NIGHT WINDOW ONLY: interrupts ALL Docker containers.
 nixos-rebuild switch --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
-systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-dev
+systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-dev agent-source-june-dev
 docker info --format '{{json .Runtimes.runsc}}'
 docker ps --format '{{.Names}}'
+# June dev's Convex container reaches the source API; without a key it answers 401.
+# The service hashes its toolchain before it listens: allow two minutes.
+for attempt in $(seq 60); do
+  code=$(docker exec convex-june-dev-backend-1 curl -s -o /dev/null -w '%{http_code}' http://host.docker.internal:7421/v1/head || true)
+  test "$code" = 401 && break
+  sleep 2
+done
+test "$code" = 401
 journalctl -u hosted-runner-june-dev -n 50 --no-pager
+journalctl -u agent-source-june-dev -n 20 --no-pager
 df -h /
 REMOTE
 DEPLOY
@@ -176,11 +213,13 @@ mid-effect without repeating the write, sleep across guests, and finish with
 output in June. All pilot data remains synthetic.
 
 If rollout fails, stop the dev runner and wait for cleanup. Preserve state,
-credentials, private bundle and selected pins. Roll back to the saved system
+credentials, private bundle and selected pins. A failure of the agent-source
+service alone does not need this: stop its units and fix forward
+([black-agent-source.md](black-agent-source.md), "Rollback"). Roll back to the saved system
 generation (a second dockerd restart also interrupts all containers):
 
 ```sh
-ssh root@black 'set -e; systemctl stop hosted-runner-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
+ssh root@black 'set -e; systemctl stop hosted-runner-june-dev agent-source-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
 ```
 
 That restores the active runtime configuration. To restore the boot default too,

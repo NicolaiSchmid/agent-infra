@@ -21,6 +21,10 @@ class DiskGateTests(unittest.TestCase):
         self.log = self.root / "commands"
         self.log.touch()
         (self.root / "remote").mkdir()
+        self.credentials = ["june-dev-runner.key", "june-dev-release.json",
+                            "june-dev-source.key", "june-dev-builder.key"]
+        for name in self.credentials:
+            (self.root / "remote" / name).write_text("synthetic")
         scripts = {
             "gh": '''#!/bin/sh
 case "$*" in
@@ -49,9 +53,9 @@ import sys
 from pathlib import Path
 assert sys.argv[1] == 'root@black'
 command = shlex.join(sys.argv[2:]) if len(sys.argv) > 3 else sys.argv[2]
-command = command.replace('/root/hosted-runner', os.environ['E5_CASE'] + '/remote')
+command = command.replace('/root/hosted-runner', os.environ['E5_CASE'] + '/remote').replace('/root/agent-source', os.environ['E5_CASE'] + '/remote')
 if len(sys.argv) > 3:
-    script = sys.stdin.read().replace('/root/hosted-runner', os.environ['E5_CASE'] + '/remote')
+    script = sys.stdin.read().replace('/root/hosted-runner', os.environ['E5_CASE'] + '/remote').replace('/root/agent-source', os.environ['E5_CASE'] + '/remote')
     result = subprocess.run(['sh', '-c', command], input=script, text=True)
 else:
     result = subprocess.run(['sh', '-c', command])
@@ -64,19 +68,26 @@ test "${E5_FAIL:-}" != "$1"
             "docker": '''#!/bin/sh
 echo "docker $*" >> "$E5_COMMAND_LOG"
 test "${E5_FAIL:-}" != "$1" || exit 1
-case "$1" in ps) echo synthetic-june-container;; esac
+case "$1" in ps) echo synthetic-june-container;; exec) echo 401;; esac
+''',
+            "nix": '''#!/bin/sh
+echo "nix $*" >> "$E5_COMMAND_LOG"
+test "${E5_FAIL:-}" != toolchain
 ''',
             "readlink": '''#!/bin/sh
 test "${E5_FAIL:-}" != snapshot || exit 1
 echo /nix/store/synthetic-previous-system
 ''',
-            "jq": "#!/bin/sh\necho node@sha256:synthetic-digest\n",
+            "jq": '''#!/bin/sh
+case "$*" in *keys*) test "${E5_FAIL:-}" != release || exit 1;; esac
+echo node@sha256:synthetic-digest
+''',
             "systemctl": "#!/bin/sh\nexit 0\n",
             "journalctl": "#!/bin/sh\nexit 0\n",
         }
         # Restrict PATH to fixtures plus the handful of harmless shell utilities
         # the block needs. A missing mock must never invoke real SSH or Nix.
-        for name in ["sh", "tail", "cat"]:
+        for name in ["sh", "tail", "cat", "seq", "sleep"]:
             (self.bin / name).symlink_to(shutil.which(name))
         for name, script in scripts.items():
             path = self.bin / name
@@ -119,16 +130,31 @@ echo /nix/store/synthetic-previous-system
         self.assertNotIn("nixos-rebuild switch", commands)
 
     def test_merge_build_pull_and_snapshot_failures_prevent_switch(self):
-        for failure in ["merge", "build", "pull", "snapshot"]:
+        for failure in ["merge", "release", "toolchain", "build", "pull", "snapshot"]:
             with self.subTest(failure=failure):
                 result, commands = self.execute(fail=failure, merged="false" if failure == "merge" else "true")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("nixos-rebuild switch", commands)
 
+    def test_missing_credential_prevents_build_and_switch(self):
+        for name in self.credentials:
+            with self.subTest(credential=name):
+                path = self.root / "remote" / name
+                path.unlink()
+                try:
+                    result, commands = self.execute()
+                finally:
+                    path.write_text("synthetic")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("nix build", commands)
+                self.assertNotIn("nixos-rebuild", commands)
+
     def test_threshold_allows_exact_pinned_switch_after_snapshots(self):
         result, commands = self.execute()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("nix build --out-link /nix/var/nix/gcroots/agent-source-toolchain github:NicolaiSchmid/agent-infra/synthetic-merge#agent-source-toolchain", commands)
         self.assertIn("nixos-rebuild switch --flake github:NicolaiSchmid/agent-infra/synthetic-merge#black", commands)
+        self.assertIn("http://host.docker.internal:7421/v1/head", commands)
         self.assertTrue((self.root / "remote/pre-e5-system").exists())
         self.assertTrue((self.root / "remote/pre-e5-containers").exists())
 

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import shutil
 import io
+import os
 import tarfile
 import json
 import time
@@ -64,6 +65,33 @@ class ArchiveTest(unittest.TestCase):
                     backup.main()
                 self.assertTrue((root / 'demo.json').exists())
                 self.assertTrue(export.exists())
+
+class AgentSourceTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('git'), 'git required')
+    def test_bundles_history_and_restores(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            repository = root / 'repo.git'
+            env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null',
+                       GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@example.invalid',
+                       GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@example.invalid')
+            self.assertEqual(backup.bundle_repository(repository, root / 'b'), {'agent_source': 'absent'})
+            subprocess.run(['git', 'init', '-q', '--bare', '-b', 'main', str(repository)], check=True, env=env)
+            self.assertEqual(backup.bundle_repository(repository, root / 'b'), {'agent_source': 'empty'})
+            self.assertFalse((root / 'b').exists())
+            clone = root / 'clone'
+            subprocess.run(['git', 'init', '-q', '-b', 'main', str(clone)], check=True, env=env)
+            (clone / 'agents').mkdir()
+            (clone / 'agents' / 'README').write_text('fixture')
+            subprocess.run(['git', '-C', str(clone), 'add', '.'], check=True, env=env)
+            subprocess.run(['git', '-C', str(clone), 'commit', '-qm', 'fixture'], check=True, env=env)
+            subprocess.run(['git', '-C', str(clone), 'push', '-q', str(repository), 'main'], check=True, env=env)
+            result = backup.bundle_repository(repository, root / 'b')
+            self.assertEqual(result['agent_source'], 'bundled')
+            restored = root / 'restored.git'
+            subprocess.run(['git', 'clone', '-q', '--mirror', str(root / 'b'), str(restored)], check=True, env=env)
+            head = lambda r: subprocess.check_output(['git', '-C', str(r), 'rev-parse', 'main'], env=env)
+            self.assertEqual(head(restored), head(repository))
 
 class PublicKeyTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which('age') and shutil.which('age-keygen'), 'age integration tools required')
