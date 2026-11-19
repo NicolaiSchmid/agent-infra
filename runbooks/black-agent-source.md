@@ -175,9 +175,8 @@ so a lost artifact needs a new commit.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins the E6 PR head (eve-deployments PR #109,
-`80afb5f`, 2026-11-18); after #109 merges, move it to the merge commit in one
-agent-infra PR:
+and the toolchain. It pins the merge commit of E6 (eve-deployments PR #109,
+`2f407ae`, 2026-11-19). To move it, change all of these in one agent-infra PR:
 
 1. `revision`: the eve-deployments commit on `main`.
 2. `sourceHash`: `nix hash path` of `git archive <revision>` unpacked into a
