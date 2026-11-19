@@ -101,10 +101,11 @@ bundle_dir=$(mktemp -d)
 gh run download "$EVE_RUN" --repo NicolaiSchmid/eve-deployments --name native-runner --dir "$bundle_dir"
 (cd "$bundle_dir" && sha256sum --check SHA256SUMS)
 test "$(sha256sum "$bundle_dir/runner.mjs" | cut -d' ' -f1)" = "$EVE_SHA256"
-ssh root@black 'set -e; test -d /root/hosted-runner; test -s /root/hosted-runner/june-dev-runner.key; test -s /root/hosted-runner/june-prod-runner.key'
-ssh root@black "install -d -m 0755 /var/lib/hosted-runner /var/lib/hosted-runner/releases /var/lib/hosted-runner/releases/$EVE_REV"
+# -n: inside this heredoc, ssh would otherwise read the rest of the script.
+ssh -n root@black 'set -e; test -d /root/hosted-runner; test -s /root/hosted-runner/june-dev-runner.key; test -s /root/hosted-runner/june-prod-runner.key'
+ssh -n root@black "install -d -m 0755 /var/lib/hosted-runner /var/lib/hosted-runner/releases /var/lib/hosted-runner/releases/$EVE_REV"
 scp "$bundle_dir/runner.mjs" root@black:/root/hosted-runner/runner.mjs.new
-ssh root@black "install -o root -g root -m 0444 /root/hosted-runner/runner.mjs.new /var/lib/hosted-runner/releases/$EVE_REV/runner.mjs && rm /root/hosted-runner/runner.mjs.new"
+ssh -n root@black "install -o root -g root -m 0444 /root/hosted-runner/runner.mjs.new /var/lib/hosted-runner/releases/$EVE_REV/runner.mjs && rm /root/hosted-runner/runner.mjs.new"
 PROVISION
 ```
 
@@ -244,11 +245,16 @@ if test "$switched" != 0; then
   fi
   warn 'the switch failed on june-dev units only.'
 fi
-systemctl is-active docker firewall convex-june-prod hosted-runner-june-prod agent-source-june-prod
+# One unit per call: is-active succeeds when any listed unit is active.
+for unit in docker firewall convex-june-prod hosted-runner-june-prod agent-source-june-prod; do
+  systemctl is-active "$unit"
+done
 docker info --format '{{json .Runtimes.runsc}}'
 docker ps --format '{{.Names}}'
 probe june-prod 7422
-systemctl is-active convex-june-dev hosted-runner-june-dev agent-source-june-dev || warn 'units not active.'
+for unit in convex-june-dev hosted-runner-june-dev agent-source-june-dev; do
+  systemctl is-active "$unit" || warn "$unit is not active."
+done
 probe june-dev 7421 || warn 'source API probe failed.'
 for unit in hosted-runner-june-prod agent-source-june-prod hosted-runner-june-dev agent-source-june-dev; do
   journalctl -u "$unit" -n 30 --no-pager
