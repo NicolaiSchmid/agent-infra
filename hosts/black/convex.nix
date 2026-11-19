@@ -11,7 +11,8 @@
 #   written once by convex-provision, and secrets/convex-<name>-admin-key,
 #   derived from the instance secret on first start;
 # - convex-<name>-backup.timer: a daily snapshot export (with file storage)
-#   into the Garage bucket <name>-backups, newest 14 kept.
+#   into the Garage bucket <name>-backups, kept 30 days (newest always kept);
+#   Convex's export objects and snapshot-import uploads are removed after 14.
 # Shared: one dashboard (convex/dashboard.yaml, tailnet-only) behind the
 # portal (convex/portal.mjs: passkey login, deployment list, dashboards with
 # the admin key applied; `convex-portal-enroll` adds a passkey), and Garage
@@ -189,11 +190,19 @@
           ${config.system.build.productBackupRunner}/bin/product-backup ${name} "$zip" "$ts" || offhost_status=$?
         ''}
 
-        # Keep the newest 14.
-        rclone lsf "$dest" | sort | head -n -14 | while read -r old; do
+        # 30-day retention, the same as the off-host copy (AVV Anlage 2;
+        # runbooks/storage-box-product-recovery.md): delete daily ZIPs older
+        # than 30 days, never the newest. Names start with their UTC time.
+        cutoff=$(date -u -d '30 days ago' +%Y-%m-%dT%H%M%SZ)
+        rclone lsf "$dest" | sort | head -n -1 | while read -r old; do
+          [[ "$old" < "$cutoff" ]] || continue
           rclone deletefile "$dest/$old"
           echo "removed $old"
         done
+        # Convex's own export objects (each also copied into $dest above) and
+        # finished snapshot-import uploads: nothing else removes them.
+        rclone delete --min-age 14d -v garage:${name}-exports
+        rclone delete --min-age 14d -v garage:${name}-snapshot-imports
         exit "$offhost_status"
       '';
     };
