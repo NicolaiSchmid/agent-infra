@@ -14,9 +14,12 @@
   checksum = pkgs.writeText "hosted-runner-checksum" "${pin.runner.sha256}  ${runner}\n";
   instances = {
     june-dev = {enable = true;};
-    # O2: test-data pilot first. Enabling prod requires a separate change
-    # after live acceptance and the decision about real client data on black.
-    june-prod = {enable = false;};
+    # On since 2026-11-19 for acceptance in the MODUS org, synthetic agents
+    # and data only (Nicolai Schmid; June dev's Convex is in an OOM restart
+    # loop). Real client data stays blocked by O2 of June's runtime plan; the
+    # guard is that only staff activate releases and create installations,
+    # through the operator CLI.
+    june-prod = {enable = true;};
   };
   service = name: instance: let
     user = "hosted-runner-${name}";
