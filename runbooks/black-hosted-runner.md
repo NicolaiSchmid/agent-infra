@@ -176,7 +176,7 @@ that E2B's refused ports and the prod source API no longer answer there.
 ```sh
 sh <<'DEPLOY'
 set -eu
-INFRA_PR=__INFRA_PR__
+INFRA_PR=92
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
 ssh root@black sh -s -- "$INFRA_REV" <<'REMOTE'
