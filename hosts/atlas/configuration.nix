@@ -57,16 +57,18 @@ in {
     "kernel.sysrq" = 1;
   };
 
-  # Return large unused guest ranges to Black. Avoid punching tiny holes in
-  # its Btrfs VM images; the previous no-trim policy let write churn exhaust
-  # Black and pause Atlas even while the guest still had free space.
+  # Return every freed guest block to Black each hour; the previous no-trim
+  # policy let write churn exhaust Black and pause Atlas even while the guest
+  # still had free space. No --minimum: with 64M the hourly runs trimmed only
+  # 0.1-0.6 GiB each, while one plain `fstrim -av` on 2026-11-19 gave Black
+  # 34G back (88G to 122G free); agent churn frees mostly small ranges.
   services.fstrim = {
     enable = true;
     interval = "hourly";
   };
   systemd.services.fstrim.serviceConfig.ExecStart = lib.mkForce [
     ""
-    "${pkgs.util-linux}/bin/fstrim --all --verbose --minimum 64M"
+    "${pkgs.util-linux}/bin/fstrim --all --verbose"
   ];
   systemd.timers.fstrim.timerConfig.RandomizedDelaySec = lib.mkForce "5m";
 
