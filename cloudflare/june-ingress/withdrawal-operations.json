@@ -1,0 +1,87 @@
+{
+  "state": "candidate-not-installed",
+  "sourcePin": "45f994872",
+  "accountId": "e32779e58e3407367e2454c3eebf20e9",
+  "scriptName": "june-withdraw-deferred-content",
+  "scriptFile": "withdrawal-worker.mjs",
+  "requiredSecretBinding": "VERCEL_AUTOMATION_BYPASS_SECRET",
+  "zones": [
+    {
+      "name": "dearjune.ai",
+      "id": "d286575216add73551f89a402e467168",
+      "newRoutes": [
+        "dearjune.ai/*",
+        "www.dearjune.ai/*"
+      ],
+      "dnsPatches": [
+        {
+          "recordId": "a475416ccfb2b33475c4387ce13f71e4",
+          "name": "dearjune.ai",
+          "before": {
+            "proxied": false
+          },
+          "after": {
+            "proxied": true
+          }
+        },
+        {
+          "recordId": "433cc12806c138a8b31129fa5817efc5",
+          "name": "www.dearjune.ai",
+          "before": {
+            "proxied": false
+          },
+          "after": {
+            "proxied": true
+          }
+        }
+      ]
+    }
+  ],
+  "vercel": {
+    "teamSlug": "wasc",
+    "projectName": "june",
+    "projectId": "prj_XbkZ9JrnupD7Kf9Zpmz5OC3tkgsc",
+    "retireProjectDomain": "nicoolai.vercel.app",
+    "originProtectionBefore": {
+      "deploymentType": "all_except_custom_domains"
+    },
+    "requiredOriginProtection": {
+      "deploymentType": "all"
+    },
+    "capabilityAndBillingGate": "All Deployments Authentication and automation bypass documented included; verify account quota fail-closed and private dashboard entry before activation."
+  },
+  "excluded": [
+    "ownCloud and all unrelated hostnames",
+    "Convex SDK/cloud origins",
+    "Convex HTTP/site origins",
+    "gateway projects",
+    "provided AuthKit domain",
+    "www.junepartner.com until June release ready",
+    "apis.junepartner.com until direct HTTP release ready",
+    "nicool.ai pending redirect-rule ownership/order audit; retain existing redirect unchanged"
+  ],
+  "preflight": {
+    "scriptName": "june-ingress-preflight",
+    "scriptFile": "preflight-worker.mjs",
+    "host": "ingress-preflight.dearjune.ai",
+    "routePattern": "ingress-preflight.dearjune.ai/*",
+    "path": "/__june_ingress_probe",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "origin": "https://june-mqsea5c26-wasc.vercel.app/favicon.ico",
+    "deploymentId": "dpl_RFh7EJZVmaRxCB2g4AEFNUEVrKwy",
+    "expectedStatus": 200,
+    "expectedBytes": 15086,
+    "expectedSha256": "3a6c67ab3abcf4f39dbc1970267c6963279d7f48aa5d24b965b37e76999e0cd8",
+    "dnsCreate": {
+      "type": "AAAA",
+      "name": "ingress-preflight.dearjune.ai",
+      "content": "100::",
+      "ttl": 1,
+      "proxied": true
+    },
+    "guard": "Require hostname, route, and script absent; never overwrite. No existing DNS/protection changes. Revalidate deployment/resource/protection before separately authorized install."
+  }
+}
