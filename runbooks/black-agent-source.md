@@ -25,7 +25,7 @@ Names below use `<d>` for the deployment, `june-dev` or `june-prod`.
 | Service | `agent-source-june-dev.service` | `agent-source-june-prod.service` | API and build queue, user `agent-source`, `MemoryMax=3G`, `TasksMax=512` |
 | Listen | `127.0.0.1:7421`, `172.17.0.1:7421` | `127.0.0.1:7422`, `172.17.0.1:7422` | docker0, which `host.docker.internal` resolves to in June's Convex containers |
 | Firewall | accept 7421 on `cvx-13210` only | accept 7422 on `cvx-13220` only | the deployment's Convex bridge (`cvx-<cloudPort>`); new tailnet connections dropped by `tailnet-refuse.nix`; no Traefik route, no public address. `IPAddressDeny=any` with loopback and `172.16.0.0/12` allowed backs this up |
-| Repository | `/var/lib/agent-source/june-dev/repo.git` | `/var/lib/agent-source/june-prod/repo.git` | created on first start; `work/` beside it is build scratch, wiped at start |
+| Repository | `/var/lib/agent-source/june-dev/repo.git` | `/var/lib/agent-source/june-prod/repo.git` | created before the first start (`ExecStartPre`), which also sets the pre-receive hook (pushes to `refs/heads/main` only) and the force-push and delete refusals on every start; `work/` beside it is build scratch, wiped at start |
 | Store | `/var/lib/agent-artifacts/june-dev` | `/var/lib/agent-artifacts/june-prod` | `agent-source:agent-artifacts`, setgid 2750; `hosted-runner-*` read it through group `agent-artifacts` |
 | Keys | `/root/agent-source/june-dev-{source,builder}.key` | `/root/agent-source/june-prod-{source,builder}.key` | systemd credentials; the builder key is June's `HOSTED_BUILDER_KEY`, the source key becomes `HOSTED_SOURCE_KEY` once June's authoring tools read it |
 | Environment pin | `/root/hosted-runner/june-dev-release.json` | `/root/hosted-runner/june-prod-release.json` | the runner's file ([black-hosted-runner.md](black-hosted-runner.md)), read by both services |
@@ -145,9 +145,19 @@ On the tailnet, Tailscale SSH (`--ssh` on black) answers port 22 under the
 tailnet policy and maps `agent-source` to the local user; OpenSSH, with
 Nicolai's admin key, admits `agent-source` only from tailnet addresses
 (`Match User agent-source Address` in `agent-source.nix`). Either way the
-login shell is `git-shell`, so only clone, fetch and push work. The
-repository exists after the service's first start. Branch `main`, one folder
-per agent, no force-push or branch deletion. The 2026-11-19 acceptance uses
+login shell is `git-shell`. Over OpenSSH that leaves clone, fetch and push.
+Tailscale SSH, however, serves sftp/scp and port forwarding itself and ignores
+the `Match` block, so a login as `agent-source` over Tailscale SSH can read
+and write what that user can: the repository directly (past the hook below)
+and its services' credentials. This is a known gap; the fix is a separate
+push user without credential access, a later step. The tailnet SSH policy is
+unchanged.
+
+The repository exists after the service's first start. Pushes may update
+`refs/heads/main` only: a pre-receive hook from the Nix store refuses every
+other ref (branches, tags) and deleting `main`, and `receive.denyNonFastForwards`
+refuses force-pushes. The build API builds only commits on `main` (409
+otherwise). One folder per agent. The 2026-11-19 acceptance uses
 June prod (MODUS org, synthetic agents only); for dev use `june-dev` and port
 7421:
 
@@ -164,7 +174,10 @@ git push origin main
 
 Then request the build on black; it answers `202` while queued, then `200`
 with the digest. Request it again: the same tree gives the same digest
-(acceptance step 4 of the June plan).
+(acceptance step 4 of the June plan). A failed build answers `422` with the
+reason to every further request and is not built again; `-d '{"retry": true}'`
+starts a new attempt of the same commit and keeps the failed one in the
+attempt log (eve-deployments `docs/agent-source.md`, "Repository and API").
 
 ```sh
 ssh root@black 'curl -s -X POST -H "authorization: Bearer $(cat /root/agent-source/june-prod-source.key)" \
@@ -191,6 +204,8 @@ git -C /var/lib/agent-source/$d/repo.git remote remove origin
 chown -R agent-source:agent-source /var/lib/agent-source/$d/repo.git
 ```
 
+The next start sets the hook and the push settings again.
+
 Artifacts come back by requesting builds again: same source and toolchain,
 same digest. After a toolchain change June keeps each commit's first digest,
 so a lost artifact needs a new commit.
@@ -198,9 +213,11 @@ so a lost artifact needs a new commit.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #112's merge commit (`309c478`,
+and the toolchain. It pins eve-deployments PR #113's merge commit (`1df39aa`,
 2026-11-19), whose CI run is green: E6 (PR #109), owner-writable toolchain
-copies in the builder (PR #111) and the runner's proxy-404 retry (PR #112).
+copies in the builder (PR #111), the runner's proxy-404 retry (PR #112), and
+failed builds that stay failed with an explicit retry and main-only builds
+(PR #113).
 To move it, change all of these in one agent-infra PR:
 
 1. `revision`: the eve-deployments commit on `main`.

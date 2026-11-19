@@ -44,6 +44,46 @@
   dockerHost = "172.17.0.1";
   bridge = name: "cvx-${toString deployments.${name}.cloudPort}";
 
+  # Pushes may update refs/heads/main only: every other ref (branch, tag,
+  # notes) is refused, and so is deleting main. The service builds main's
+  # history only (eve-deployments docs/agent-source.md).
+  hooks = pkgs.writeTextFile {
+    name = "agent-source-hooks";
+    destination = "/pre-receive";
+    executable = true;
+    text = ''
+      #!${pkgs.runtimeShell}
+      refused=0
+      while read -r old new ref; do
+        if [ "$ref" != refs/heads/main ]; then
+          echo "agent-source: only refs/heads/main can be pushed; refused $ref" >&2
+          refused=1
+        elif [ -z "''${new#0000000000000000000000000000000000000000}" ]; then
+          echo "agent-source: main cannot be deleted" >&2
+          refused=1
+        fi
+      done
+      exit "$refused"
+    '';
+  };
+
+  # Before every start: create the repository the way the service would
+  # (eve-deployments' git-store init) when it is missing, so the hook is in
+  # place before the first push, and keep its push settings. The service's own
+  # git commands pass core.hooksPath=/dev/null and never run the hook.
+  prepare = name:
+    pkgs.writeShellScript "agent-source-${name}-repository" ''
+      set -eu
+      repo=${repository name}
+      export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+      if ! git --git-dir="$repo" rev-parse --is-bare-repository >/dev/null 2>&1; then
+        git init --quiet --bare --initial-branch=main "$repo"
+      fi
+      git --git-dir="$repo" config receive.denyNonFastForwards true
+      git --git-dir="$repo" config receive.denyDeletes true
+      git --git-dir="$repo" config core.hooksPath ${hooks}
+    '';
+
   # The config holds no secrets but takes the environment pin from the
   # runner's root-provisioned release.json, so builder and runner share one.
   run = command: name: instance:
@@ -108,6 +148,7 @@
       # Come back with dockerd, like the hosted runner.
       partOf = ["docker.service"];
       serviceConfig = {
+        ExecStartPre = prepare name;
         ExecStart = run "serve" name instance;
         RuntimeDirectory = "agent-source-${name}";
         RuntimeDirectoryMode = "0700";
@@ -192,8 +233,11 @@ in {
   };
 
   # OpenSSH admits agent-source only from the tailnet. On the tailnet,
-  # Tailscale SSH (--ssh) answers port 22 first under the tailnet policy;
-  # either way the login shell is git-shell.
+  # Tailscale SSH (--ssh) answers port 22 first under the tailnet policy. Its
+  # sessions start git-shell, but it serves sftp/scp and port forwarding itself
+  # and ignores the Match block below: a known gap (runbooks/black-agent-source.md,
+  # "First commit over ssh"), closed later by a push user without credential
+  # access.
   services.openssh.extraConfig = ''
     Match User agent-source
       AllowAgentForwarding no
