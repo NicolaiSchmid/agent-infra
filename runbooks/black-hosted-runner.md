@@ -5,10 +5,14 @@ reads bundles from the platform's artifact store on black instead of
 downloading one pinned bundle from June; the store, its source repository and
 builder are in [black-agent-source.md](black-agent-source.md), and both go
 live in the one night deployment below. The service module enables
-`hosted-runner-june-dev` at boot and defines `hosted-runner-june-prod` without a
-boot dependency. Do not start prod manually: pilot acceptance and the decision
-about real client data on black must come first (O2). Use test data only. Each
-runner executes one delivery at a time (O4); this is a limit for a second firm.
+`hosted-runner-june-dev` and `hosted-runner-june-prod` at boot. Prod is on
+since Nicolai Schmid's decision of 2026-11-19: the acceptance runs in June
+prod, in the MODUS org, with synthetic agents and data only, because June
+dev's Convex backend is in an out-of-memory restart loop. Real client data on
+black stays blocked by O2 of June's runtime plan; the guard is that only staff
+activate releases and create installations, through June's operator CLI
+(internal functions, admin key). Each runner executes one delivery at a time
+(O4); this is a limit for a second firm.
 
 The trusted native process has a separate system user per deployment, only
 supplementary Docker access (root-equivalent), no login or Convex admin key.
@@ -111,7 +115,8 @@ run, and the runner reads that digest from the store and verifies it. The
 release JSON holds only the environment pin, and the agent-source builder
 reports the same file's pin with every build, so builds and runs agree. The
 runner's pre-start refuses any other field, including a stale `artifact`
-block. Write a local `june-dev-release.json` with exactly this shape:
+block. Write a local `june-prod-release.json` and `june-dev-release.json`
+with exactly this shape:
 
 ```json
 {
@@ -120,7 +125,17 @@ block. Write a local `june-dev-release.json` with exactly this shape:
 ```
 
 The environment digest is the runner's `targetEnvironmentDigest(image)`, not
-the image digest; eve-deployments `docs/agent-source.md` shows it. For an E4
+the image digest; eve-deployments `docs/agent-source.md` shows it. Compute it
+from an eve-deployments checkout at the pinned revision after
+`npm ci --ignore-scripts`:
+
+```sh
+node --input-type=module -e 'const {targetEnvironmentDigest} = await import(process.cwd() + "/src/target-artifact.ts"); console.log(targetEnvironmentDigest(process.argv[1]))' node@sha256:<pinned image digest>
+```
+
+Since 2026-11-19 both files pin the guest image of eve-deployments
+`scripts/fixtures/gvisor-config.json` (the image its gVisor CI runs), with the
+digest computed this way at the revision in `hosts/black/eve-deployments.nix`. For an E4
 sandbox release, its bundle also pins the sandbox image; pre-pull that exact
 image as well. Never substitute a mutable tag. Neither the runner nor the
 builder fetches anything at run time; builds run offline in gVisor. Missing or
@@ -130,33 +145,44 @@ unresolved custody must be reconciled with the old pin before changing it.
 Builds made under the old pin report the old environment and need a new commit.
 
 ```sh
-scp june-dev-release.json root@black:/root/hosted-runner/june-dev-release.json.new &&
-ssh root@black 'install -o root -g root -m 0600 /root/hosted-runner/june-dev-release.json.new /root/hosted-runner/june-dev-release.json && rm /root/hosted-runner/june-dev-release.json.new'
+for d in june-prod june-dev; do
+  scp $d-release.json root@black:/root/hosted-runner/$d-release.json.new &&
+  ssh root@black "install -o root -g root -m 0600 /root/hosted-runner/$d-release.json.new /root/hosted-runner/$d-release.json && rm /root/hosted-runner/$d-release.json.new"
+done
 ```
 
 ## Night deployment and rollback
 
-E5 and A1 go live together, in one agreed night window, June dev only. Before
-the window, by day and without touching services: the runner bundle and the
-environment pin above, the agent-source keys and toolchain source
-([black-agent-source.md](black-agent-source.md), "Before the night"), and the
-June dev environment variables. Run after the PR is merged, CI is green and
-disk headroom is recovered. No fleet rebuild is needed. Run the entire block
-as one command: the local shell aborts on failed merge checks, and one remote
-shell owns every credential and disk check, build, image pull, snapshot and
-switch. Any failure prevents the switch, including space dropping below 25 GiB
-after the builds or image pull. Do not extract the switch into a separate
-command.
+E5 and A1 go live together, in one agreed night window, for June prod and
+June dev. Before the window, by day and without touching services: the runner
+bundle and the environment pins above, the agent-source keys and toolchain
+source ([black-agent-source.md](black-agent-source.md), "Before the night"),
+and the June environment variables. Run after the PR is merged, CI is green
+and disk headroom is recovered. No fleet rebuild is needed. Run the entire
+block as one command: the local shell aborts on failed merge checks, and one
+remote shell owns every credential and disk check, build, image pull,
+snapshot and switch. Any failure before the switch prevents it, including
+space dropping below 25 GiB after the builds or image pull. Do not extract
+the switch into a separate command.
+
+June prod's checks are strict. June dev's only warn, because its Convex
+backend is in an out-of-memory restart loop (2026-11-19): a missing dev
+credential, a dev unit that fails to start or a dev 401 probe that fails is
+reported, and the deployment continues. A switch that fails only on
+`*-june-dev*` units counts as a warning too; any other failed unit stops the
+block. The last step, run from the operator's machine on the tailnet, checks
+that E2B's refused ports and the prod source API no longer answer there.
 
 ```sh
 sh <<'DEPLOY'
 set -eu
-INFRA_PR=91
+INFRA_PR=__INFRA_PR__
 test "$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merged)" = true
 INFRA_REV=$(gh api repos/NicolaiSchmid/agent-infra/pulls/$INFRA_PR --jq .merge_commit_sha)
 ssh root@black sh -s -- "$INFRA_REV" <<'REMOTE'
 set -eu
 infra_rev=$1
+warn() { echo "Warning (june-dev, not fatal): $*" >&2; }
 require_space() {
   available_kib=$(df --output=avail -k / | tail -1)
   test "$available_kib" -ge 26214400 || {
@@ -164,13 +190,31 @@ require_space() {
     exit 1
   }
 }
-for file in /root/hosted-runner/june-dev-runner.key /root/hosted-runner/june-dev-release.json \
-  /root/agent-source/june-dev-source.key /root/agent-source/june-dev-builder.key; do
+# 401 without a key from the deployment's Convex container to its source API.
+# The service hashes its toolchain before it listens: allow two minutes.
+probe() {
+  code=000
+  for attempt in $(seq 60); do
+    code=$(docker exec "convex-$1-backend-1" curl -s -o /dev/null -w '%{http_code}' "http://host.docker.internal:$2/v1/head" || true)
+    test "$code" = 401 && return 0
+    sleep 2
+  done
+  echo "$1: source API answered $code, expected 401." >&2
+  return 1
+}
+for file in /root/hosted-runner/june-prod-runner.key /root/hosted-runner/june-prod-release.json \
+  /root/agent-source/june-prod-source.key /root/agent-source/june-prod-builder.key; do
   test -s "$file" || { echo "Deployment stopped: $file is missing." >&2; exit 1; }
 done
+for file in /root/hosted-runner/june-dev-runner.key /root/hosted-runner/june-dev-release.json \
+  /root/agent-source/june-dev-source.key /root/agent-source/june-dev-builder.key; do
+  test -s "$file" || warn "$file is missing; its units will fail to start."
+done
 # The runner refuses any other shape, but only after the switch restarted Docker.
-jq -e 'keys == ["environment"]' /root/hosted-runner/june-dev-release.json > /dev/null ||
-  { echo 'Deployment stopped: june-dev-release.json must hold only {environment}.' >&2; exit 1; }
+jq -e 'keys == ["environment"]' /root/hosted-runner/june-prod-release.json > /dev/null ||
+  { echo 'Deployment stopped: june-prod-release.json must hold only {environment}.' >&2; exit 1; }
+jq -e 'keys == ["environment"]' /root/hosted-runner/june-dev-release.json > /dev/null 2>&1 ||
+  warn 'june-dev-release.json must hold only {environment}.'
 df -h / /nix /var/lib/docker
 docker system df
 require_space
@@ -178,48 +222,65 @@ require_space
 nix build --out-link /nix/var/nix/gcroots/agent-source-toolchain "github:NicolaiSchmid/agent-infra/$infra_rev#agent-source-toolchain"
 nixos-rebuild build --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
 require_space
-image=$(jq -er .environment.image /root/hosted-runner/june-dev-release.json)
+image=$(jq -er .environment.image /root/hosted-runner/june-prod-release.json)
 docker pull "$image"
+dev_image=$(jq -er .environment.image /root/hosted-runner/june-dev-release.json 2>/dev/null || true)
+if test -n "$dev_image" && test "$dev_image" != "$image"; then
+  docker pull "$dev_image" || warn "could not pull $dev_image."
+fi
 # For E4, pull the bundle's exact sandbox image here too, before the final gate.
 require_space
 readlink -f /nix/var/nix/profiles/system > /root/hosted-runner/pre-e5-system
 docker ps --format '{{.Names}}' > /root/hosted-runner/pre-e5-containers
 # NIGHT WINDOW ONLY: interrupts ALL Docker containers.
-nixos-rebuild switch --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black"
-systemctl is-active docker convex-june-dev convex-june-prod hosted-runner-june-dev agent-source-june-dev
+switched=0
+nixos-rebuild switch --flake "github:NicolaiSchmid/agent-infra/$infra_rev#black" || switched=$?
+if test "$switched" != 0; then
+  failed=$(systemctl list-units --failed --plain --no-legend | cut -d' ' -f1)
+  echo "Switch exited $switched; failed units: $failed" >&2
+  if test -z "$failed" || printf '%s\n' "$failed" | grep -qv -- '-june-dev'; then
+    echo 'Deployment stopped after the switch: decide on rollback below.' >&2
+    exit 1
+  fi
+  warn 'the switch failed on june-dev units only.'
+fi
+systemctl is-active docker firewall convex-june-prod hosted-runner-june-prod agent-source-june-prod
 docker info --format '{{json .Runtimes.runsc}}'
 docker ps --format '{{.Names}}'
-# June dev's Convex container reaches the source API; without a key it answers 401.
-# The service hashes its toolchain before it listens: allow two minutes.
-for attempt in $(seq 60); do
-  code=$(docker exec convex-june-dev-backend-1 curl -s -o /dev/null -w '%{http_code}' http://host.docker.internal:7421/v1/head || true)
-  test "$code" = 401 && break
-  sleep 2
+probe june-prod 7422
+systemctl is-active convex-june-dev hosted-runner-june-dev agent-source-june-dev || warn 'units not active.'
+probe june-dev 7421 || warn 'source API probe failed.'
+for unit in hosted-runner-june-prod agent-source-june-prod hosted-runner-june-dev agent-source-june-dev; do
+  journalctl -u "$unit" -n 30 --no-pager
 done
-test "$code" = 401
-journalctl -u hosted-runner-june-dev -n 50 --no-pager
-journalctl -u agent-source-june-dev -n 20 --no-pager
 df -h /
 REMOTE
+# From the tailnet: E2B's refused ports and the prod source API must not answer.
+for port in 3003 5007 7422; do
+  if curl -s -m 5 -o /dev/null "http://black.takaya-buri.ts.net:$port/"; then
+    echo "Port $port answers on the tailnet." >&2
+    exit 1
+  fi
+done
 DEPLOY
 ```
 
 Compare containers with `/root/hosted-runner/pre-e5-containers`; confirm June
 dev/prod RPC and HTTP health and actual guest `HostConfig.Runtime=runsc`.
-The runner journal must report readiness. Do not consider E5 the complete live
-acceptance: a staff-started CI release must still make funded MODUS inference
-with run-linked usage, request a real tool approval, resume, survive runner death
-mid-effect without repeating the write, sleep across guests, and finish with
-output in June. All pilot data remains synthetic.
+The runner journals must report readiness. Do not consider E5 the complete live
+acceptance: a staff-started release in the MODUS org must still make funded
+MODUS inference with run-linked usage, request a real tool approval, resume,
+survive runner death mid-effect without repeating the write, sleep across
+guests, and finish with output in June. All acceptance data remains synthetic.
 
-If rollout fails, stop the dev runner and wait for cleanup. Preserve state,
+If rollout fails, stop the runners and wait for cleanup. Preserve state,
 credentials, private bundle and selected pins. A failure of the agent-source
 service alone does not need this: stop its units and fix forward
 ([black-agent-source.md](black-agent-source.md), "Rollback"). Roll back to the saved system
 generation (a second dockerd restart also interrupts all containers):
 
 ```sh
-ssh root@black 'set -e; systemctl stop hosted-runner-june-dev agent-source-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
+ssh root@black 'set -e; systemctl stop hosted-runner-june-prod agent-source-june-prod hosted-runner-june-dev agent-source-june-dev; previous=$(cat /root/hosted-runner/pre-e5-system); "$previous/bin/switch-to-configuration" switch'
 ```
 
 That restores the active runtime configuration. To restore the boot default too,

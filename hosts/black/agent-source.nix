@@ -25,9 +25,13 @@
       enable = true;
       port = 7421;
     };
-    # O2: no real client data on black yet. Defined like the E5 runner, off.
+    # On since 2026-11-19 for acceptance in the MODUS org, synthetic agents
+    # and data only (Nicolai Schmid; June dev's Convex is in an OOM restart
+    # loop). Real client data stays blocked by O2 of June's runtime plan; the
+    # guard is that only staff activate releases and create installations,
+    # through the operator CLI. Same as the runner (hosted-runner.nix).
     june-prod = {
-      enable = false;
+      enable = true;
       port = 7422;
     };
   };
