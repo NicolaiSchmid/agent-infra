@@ -213,9 +213,11 @@ so a lost artifact needs a new commit.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #112's merge commit (`309c478`,
+and the toolchain. It pins eve-deployments PR #113's merge commit (`1df39aa`,
 2026-11-19), whose CI run is green: E6 (PR #109), owner-writable toolchain
-copies in the builder (PR #111) and the runner's proxy-404 retry (PR #112).
+copies in the builder (PR #111), the runner's proxy-404 retry (PR #112), and
+failed builds that stay failed with an explicit retry and main-only builds
+(PR #113).
 To move it, change all of these in one agent-infra PR:
 
 1. `revision`: the eve-deployments commit on `main`.
