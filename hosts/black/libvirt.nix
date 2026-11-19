@@ -134,6 +134,10 @@ in {
       else
         # Updating the template alone never changes an existing domain.
         # Preserve its other settings, including memory and device addresses.
+        # This changes only the next boot: a running QEMU keeps its discard
+        # mode. The running Atlas was switched to unmap live on 2026-11-18
+        # (QMP blockdev-reopen of both file nodes, VM paused about 0.1 s); a
+        # VM still on ignore needs that reopen or a full stop and start.
         virsh dumpxml atlas --inactive > /run/atlas-domain-discard.xml
         sed -i "s/discard='ignore'/discard='unmap'/g" /run/atlas-domain-discard.xml
         virsh define /run/atlas-domain-discard.xml
