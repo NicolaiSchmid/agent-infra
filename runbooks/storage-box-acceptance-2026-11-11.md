@@ -58,3 +58,5 @@ no app creation was authorized, and push delivery remains unavailable. Local
 freshness checks do not substitute for push delivery or an external dead-man
 monitor, which remains unconfigured. Retention review/compaction stays on the
 operator Mac; no long-term retention automation or quota alert is claimed.
+(Superseded for retention by the [2026-11-19 record](storage-box-retention-2026-11-19.md):
+scheduled 30-day retention on Forge.)

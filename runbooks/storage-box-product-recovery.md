@@ -49,6 +49,8 @@ The bootstrap writer key is forced to append-only Borg under
 Other pre-existing account keys were preserved. The final subaccount key must be
 restricted to its exact repository, and the Atlas parent-account bootstrap key
 must be removed after provisioning so retention authority remains on the Mac.
+(Since 2026-11-19, scheduled retention runs on Forge with its own restricted key; see
+[Retention](#retention-30-days).)
 Black received only the writer key/passphrase, decrypted from SOPS with its host
 identity, in root-only runtime files. No host rebuild or product restart occurred.
 
@@ -78,7 +80,8 @@ Use Borg 1.x with explicit `--remote-path=borg-1.4`, SSH port 23.
    adapting the actual supported absolute subaccount path after checking it.
    Follow Hetzner's authorized_keys setup on port 23. Verify the command is
    enforced; do not assume an SSH key is restricted merely because it is dedicated.
-   Keep the separate unrestricted retention key and parent account off Black.
+   Keep the separate retention key (see [Retention](#retention-30-days)) and
+   the parent account off Black.
 4. In a disposable repository with those same restrictions create two archives,
    attempt archive delete/prune/compact/repository delete with the writer, then
    inspect using retention authority. Record exit codes and recoverability from
@@ -148,16 +151,139 @@ Do not extrapolate the migration jump as an ordinary daily growth rate.
 
 Continue to at least 7 daily exports per deployment and aggregate actual repository
 size using retention credentials. Compressed ZIPs can deduplicate poorly. Size for
-14 daily + 8 weekly + 6 monthly archives plus 30% headroom using measured added
-bytes, not raw database size. Cache and manifests add local space; ZIPs are
+30 daily archives per deployment (the retention below) plus 30% headroom using
+measured added bytes, not raw database size. Cache and manifests add local space; ZIPs are
 hardlinked into a private temporary directory, not copied. Only one Borg job runs
 at once; no local history is accumulated.
 
-From the recovery workstation only, review archive lists and then use
-`borg prune --dry-run --list --glob-archives 'NAME-*' --keep-daily 14 --keep-weekly 8 --keep-monthly 6 REPOSITORY`
-for each name. Review before real prune, then compact explicitly. Never install
-this authority or a prune/compact timer on Black. Retained append-only segments
-consume capacity until authorized compaction. Alert on provider quota independently.
+Retained append-only segments consume capacity until compaction. Alert on
+provider quota independently.
+
+## Retention (30 days)
+
+MODUS's AVV Anlage 2 (TOMs, `docs/legal/toms.md` in `NicolaiSchmid/june`) and the
+DSFA state that product data is backed up daily, encrypted, and kept 30 days.
+Decision 2026-11-19 (Nicolai Schmid): keep the **newest 30 daily archives per
+deployment series** (`borg prune --keep-daily 30`; no weekly or monthly), automated.
+This replaces the earlier manual 14 daily / 8 weekly / 6 monthly suggestion, which
+would have kept data for about six months.
+
+Where it runs: **Forge**, as the root launchd daemon `product-backup-retention`
+(`hosts/forge/product-backup-retention.nix`, daily 12:15, log
+`/var/log/product-backup-retention.log`, state and receipt
+`/var/lib/product-backup-retention/`). It never runs on Black: Black's writer key
+stays append-only and Black holds no prune or compact authority or timer. Atlas
+is excluded too: it is the agent workstation, and parent-account access was
+deliberately revoked there. Forge is always on, and its retention key and Borg
+passphrase are root-only (`0400`) SOPS secrets in
+`secrets/product-backup-retention.yaml`. That file is encrypted only to the operator
+age key and Forge's SSH host key, **never to Black**. The `nschmid10049` account
+(T3 Code, GitHub runners) cannot read those secrets without the account's sudo
+password. That password is the remaining boundary, and the retention key can delete
+the whole repository, so treat Forge root as backup-deletion authority.
+
+The retention key is a separate SSH key on the parent account. Its forced command
+is exact-repository but **not** append-only:
+`command="borg-1.4 serve --restrict-to-repository /home/product-backup/repo",restrict ssh-ed25519 … product-backup-retention@forge`.
+
+Each run (`scripts/storage-box/retention.py`) fails closed:
+
+1. It lists the archives and compares them with the survivors from the previous run.
+   Any archive that disappeared without this job pruning it (for example a
+   logical delete through the append-only writer) stops the run before any prune
+   or compact. Compacting would make such a deletion permanent. Investigate and
+   recover from Borg transaction history first.
+2. It prunes each series `NAME-<export timestamp>` with
+   `--glob-archives 'NAME-[0-9]*' --keep-daily 30`. It derives series from the
+   repository, so retired deployments get the same rule. An archive outside that
+   naming scheme fails the run.
+3. It records the survivors as the next baseline. It then compacts, except in
+   dry-run mode and on the first run without a baseline.
+4. It writes `last-run.json` (pruned names, survivor count, compaction, and
+   survivors older than 30 days).
+
+Failure exits non-zero and logs. Pushover delivery is wired
+(`services.productBackupRetention.pushover.enable`, secret
+`product-backup-retention/alert-config`, same JSON as Black's) but stays off for
+the same reason as on Black: there is no application token. Until a token exists,
+or an external monitor reads the receipt, check the log after deployment and weekly.
+Missed runs (Forge at the FileVault screen after a reboot) only delay pruning and
+are not reported.
+
+**"30 daily archives" is not a strict 30-day maximum.** Prune counts days that have
+an archive, so missed backup days push the oldest survivor past 30 days. One example
+is june-prod, which has no archives for 2026-11-17 and 2026-11-19. A series that
+stops receiving archives also keeps its last archives indefinitely. This applies to
+the retired `modus-dev`/`modus-prod` bootstrap archives from 2026-11-04 (0 records).
+The receipt's `over_age` list shows such survivors. Removing them needs an explicit
+operator decision (a one-off `borg delete` with retention credentials, or changing
+the rule).
+
+### Activate (operator, from the Mac)
+
+The Mac holds maintenance access and the operator SOPS key. Never paste the key or
+passphrase into chat or command arguments.
+
+```bash
+umask 077; d=$(mktemp -d)
+ssh-keygen -t ed25519 -N '' -C product-backup-retention@forge -f "$d/retention"
+# Authorize it with the exact-repository, non-append-only forced command (port 23).
+scp -P 23 u710483@u710483.your-storagebox.de:.ssh/authorized_keys "$d/authorized_keys"
+cp "$d/authorized_keys" "$d/authorized_keys.before"
+printf 'command="borg-1.4 serve --restrict-to-repository /home/product-backup/repo",restrict %s\n' \
+  "$(cat "$d/retention.pub")" >> "$d/authorized_keys"
+diff "$d/authorized_keys.before" "$d/authorized_keys"   # exactly one added line
+scp -P 23 "$d/authorized_keys" u710483@u710483.your-storagebox.de:.ssh/authorized_keys
+# Restriction check: a sibling path must fail with "Repository path not allowed".
+BORG_RSH="ssh -i $d/retention -o IdentitiesOnly=yes" borg list --remote-path=borg-1.4 \
+  ssh://u710483@u710483.your-storagebox.de:23/./product-backup/test-repo; echo "exit $?"
+# Encrypt key + existing passphrase to the operator and Forge only (not Black).
+cd path/to/agent-infra   # your checkout, on the PR branch
+{ echo 'product-backup-retention:'; echo '  ssh-key: |'; sed 's/^/    /' "$d/retention"
+  printf '  passphrase: '; sops -d --extract '["product-backup"]["passphrase"]' secrets/product-backup.yaml | jq -Rs .
+} > "$d/plain.yaml"
+sops --encrypt --input-type yaml --output-type yaml \
+  --age age1numtshsamwmzmz4crn50hkrm3rysp4t026d6w6wt75x027vv8eaqmkvtfr,age1hzmltzdv2auelnsuy9r95sjt0674srenfgptz0uj023pqjxr7pjs96uqgx \
+  "$d/plain.yaml" > secrets/product-backup-retention.yaml
+rm -rf "$d"
+```
+
+`age1numt…` is the operator recipient already on `secrets/product-backup.yaml`, and
+`age1hzml…` is `ssh-to-age` of Forge's `/etc/ssh/ssh_host_ed25519_key.pub`.
+`age1qevku…` (Black) is deliberately absent. Commit the encrypted file and set
+`services.productBackupRetention.enable = true` (still `dryRun = true`) in
+`hosts/forge/configuration.nix`. After CI and merge, switch Forge and run once:
+
+```bash
+ssh -t nschmid10049@forge "sudo /run/current-system/sw/bin/darwin-rebuild switch --flake github:NicolaiSchmid/agent-infra/<rev>#forge"
+ssh -t nschmid10049@forge "sudo launchctl kickstart system/org.nixos.product-backup-retention; sleep 120; sudo tail -n 120 /var/log/product-backup-retention.log; sudo cat /var/lib/product-backup-retention/last-run.json"
+```
+
+Review the "Would prune" lines. Then set `dryRun = false`, merge, and switch again.
+The first real run prunes but defers compaction because it has no baseline yet. Later
+runs compact after the deletion check. Record the first real run in the acceptance
+evidence. To pause, set `enable = false`. To prune by hand, use the same
+credentials from the Mac with the command in step 2 above, and `borg compact` only
+after the same check.
+
+### Other copies of product data
+
+- Garage `NAME-backups/daily` on Black (`hosts/black/convex.nix`): the newest 14
+  export ZIPs per deployment. That is well within 30 days while backups run (oldest
+  on 2026-11-19: 2026-11-05 for june-prod, 2026-11-07 for the others). Deletion runs
+  only after a successful export, so a stalled deployment keeps its last 14
+  indefinitely. This is not off-host recovery.
+- Garage `NAME-exports`: Convex's own snapshot-export objects, one per daily backup
+  plus any manual export. Nothing in this repository prunes them, and Convex had
+  removed none by 2026-11-19. On 2026-11-19 the oldest are 2026-10-30
+  (june-dev, 23 objects), 2026-10-31 (june-prod, 31), and 2026-11-01
+  (modus-gateway-dev/prod, 22 each). They pass 30 days from 2026-11-29 onward.
+- Garage `NAME-snapshot-imports`: migration import uploads. june-dev has 3 from
+  2026-10-30 and june-prod has 1 from 2026-11-03, which is a full production
+  snapshot. They pass 30 days on 2026-11-29 and 2026-12-03. Both modus-gateway
+  buckets are empty.
+- Borg archives from before age wrapping (2026-11-04 bootstrap) follow the same
+  rule. Retired `modus-dev`/`modus-prod` are covered in the caveat above.
 
 ## Isolated restore acceptance (required before claiming recoverability)
 

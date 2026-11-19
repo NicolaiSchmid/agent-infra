@@ -111,6 +111,14 @@ in {
 
   programs.zsh.enable = true;
 
+  # Storage Box product repository retention (product-backup-retention.nix).
+  # Enable once secrets/product-backup-retention.yaml exists; set dryRun =
+  # false only after reviewing a dry-run log (runbooks/storage-box-product-recovery.md).
+  services.productBackupRetention = {
+    enable = false;
+    dryRun = true;
+  };
+
   system.activationScripts.forgeState.text = ''
     install -d -o ${username} -g staff -m 0755 \
       "${homeDir}/.local" \
