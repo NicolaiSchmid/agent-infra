@@ -19,6 +19,7 @@ in {
     ./agent-source.nix
     ./tailnet-refuse.nix
     ./t3code.nix
+    ./memory-encryption.nix
   ];
 
   boot.loader.grub = {
