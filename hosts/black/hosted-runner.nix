@@ -93,8 +93,8 @@
     unitConfig = {
       StartLimitIntervalSec = 600;
       StartLimitBurst = 10;
-      # systemd fires this only once the unit is failed, after the automatic
-      # restarts and the start limit, not on each restart.
+      # Fires once the unit stays failed (start limit hit); RestartMode=direct
+      # keeps automatic restarts out of the failed state, so they do not fire it.
       OnFailure = ["hosted-runner-failed@%n.service"];
     };
     serviceConfig = {
@@ -117,6 +117,7 @@
       RuntimeDirectoryMode = "0700";
       UMask = "0077";
       Restart = "on-failure";
+      RestartMode = "direct";
       RestartSec = 30;
       # Keep the flock helper alive until custody cleanup finishes. Forced
       # termination still leaves durable proof for fail-closed recovery.
