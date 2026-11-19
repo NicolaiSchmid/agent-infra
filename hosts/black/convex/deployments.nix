@@ -31,7 +31,10 @@
       # at its ceiling within hours of a restart (4.2 GB anonymous, 6,756 hits
       # on memory.max), every function ran into Convex's 1 s limit and
       # junepartner.com's chat failed. Atlas gave up 5 GiB for it (libvirt.nix).
-      memory = "8G";
+      # 12G since 2026-11-19: at 8G the backend idled at 5.4 GB and the slice
+      # OOM-killed it during a deploy push (10:05 UTC), failing the deploy and
+      # dropping every client connection. Atlas gave up another 4 GiB.
+      memory = "12G";
       cpus = "2";
       pids = 256;
       slice = "juneprod";
@@ -52,8 +55,8 @@
         # during a deploy's analyze on 2026-11-13. Only modestly above it: the
         # backend itself peaks near 5.4 GB anonymous, and the slice OOM-killed
         # the whole backend at that level four times from 2026-11-08 to
-        # 2026-11-13, so a 4 GB heap would not fit in 8G. Getting more needs a
-        # larger slice.
+        # 2026-11-13, so a 4 GB heap would not fit in 8G. The slice is 12G since
+        # 2026-11-19; the heap limit stays until a deploy needs more.
         NODE_OPTIONS = "--max-old-space-size=2560";
       };
     };
