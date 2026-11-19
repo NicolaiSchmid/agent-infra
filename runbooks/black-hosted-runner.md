@@ -43,6 +43,12 @@ SIGTERM and waits for confirmed cleanup; stop has no timeout. A stuck cleanup
 requires operator inspection, not automatic deletion of evidence. Ten failed
 starts in ten minutes trip systemd's start limit; after resolving the cause,
 use `systemctl reset-failed hosted-runner-june-dev` and start it again.
+A unit that ends up failed starts `hosted-runner-failed@<unit>.service`
+(`OnFailure=`; `RestartMode=direct` keeps automatic restarts from firing it). It writes one critical journal
+line and, once `services.productBackup.pushover.enable` is on, sends the fixed
+Pushover alert through `scripts/storage-box/alert.py`, black's only alert path.
+Until a Pushover application token exists, find failures with
+`journalctl -u 'hosted-runner-failed@*' -p crit`.
 
 The runner has 512 MiB RAM, no swap, one CPU and 64 tasks. Guests retain the
 upstream per-release limits, `--runtime runsc`, no network, no capabilities,
