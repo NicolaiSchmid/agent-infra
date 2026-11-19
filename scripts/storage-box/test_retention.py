@@ -16,7 +16,8 @@ def archive(name, start='2026-11-19T03:30:00.000000'):
 
 
 class FakeBorg:
-    """Repository double: prune drops the oldest of each series beyond one."""
+    """Repository double: prune drops all but the newest of each series, or
+    everything without --keep-last (a retired series past the window)."""
 
     def __init__(self, archives):
         self.archives = list(archives)
@@ -30,7 +31,7 @@ class FakeBorg:
             prefix = args[args.index('--glob-archives') + 1].removesuffix('-[0-9]*') + '-'
             series = [a for a in self.archives if a['archive'].startswith(prefix)
                       and a['archive'][len(prefix):].isdigit()]
-            for old in series[:-1]:
+            for old in series if '--keep-last' not in args else series[:-1]:
                 self.archives.remove(old)
         return None
 
@@ -41,7 +42,8 @@ class FakeBorg:
 class RetentionTest(unittest.TestCase):
     def run_job(self, fake, state, *extra):
         with patch.dict(os.environ, {'BORG_REPO': 'fixture'}), patch.object(retention, 'borg', fake):
-            retention.main(['--state', str(state), '--keep-daily', '30', *extra])
+            retention.main(['--state', str(state), '--keep-days', '30',
+                            '--current', 'june-dev', 'june-prod', 'modus-gateway-prod', *extra])
         return json.loads((Path(state) / 'last-run.json').read_text())
 
     def test_dry_run_prunes_nothing_and_records_baseline(self):
@@ -87,6 +89,16 @@ class RetentionTest(unittest.TestCase):
             self.run_job(fake, d, '--dry-run')
         self.assertNotIn('prune', fake.commands())
 
+    def test_current_series_keep_newest_retired_age_out(self):
+        fake = FakeBorg([archive('june-prod-1'), archive('modus-dev-1'), archive('modus-dev-2')])
+        with tempfile.TemporaryDirectory() as d:
+            receipt = self.run_job(fake, d)
+            prunes = {c[c.index('--glob-archives') + 1]: c for c in fake.calls if c[0] == 'prune'}
+            self.assertIn('--keep-last', prunes['june-prod-[0-9]*'])
+            self.assertNotIn('--keep-last', prunes['modus-dev-[0-9]*'])
+            self.assertIn('30d', prunes['modus-dev-[0-9]*'])
+            self.assertEqual(receipt['pruned'], ['modus-dev-1', 'modus-dev-2'])
+
     def test_reports_over_age_survivors(self):
         fake = FakeBorg([archive('modus-dev-1', '2026-01-01T00:00:00.000000'), archive('june-dev-2', '2999-01-01T00:00:00.000000')])
         with tempfile.TemporaryDirectory() as d:
@@ -95,7 +107,7 @@ class RetentionTest(unittest.TestCase):
 
     def test_refuses_zero_keep(self):
         with tempfile.TemporaryDirectory() as d, self.assertRaises(ValueError):
-            retention.main(['--state', d, '--keep-daily', '0'])
+            retention.main(['--state', d, '--keep-days', '0', '--current', 'june-prod'])
 
 
 if __name__ == '__main__':

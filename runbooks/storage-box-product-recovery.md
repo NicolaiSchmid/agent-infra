@@ -163,10 +163,13 @@ provider quota independently.
 
 MODUS's AVV Anlage 2 (TOMs, `docs/legal/toms.md` in `NicolaiSchmid/june`) and the
 DSFA state that product data is backed up daily, encrypted, and kept 30 days.
-Decision 2026-11-19 (Nicolai Schmid): keep the **newest 30 daily archives per
-deployment series** (`borg prune --keep-daily 30`; no weekly or monthly), automated.
-This replaces the earlier manual 14 daily / 8 weekly / 6 monthly suggestion, which
-would have kept data for about six months.
+Decision 2026-11-19 (Nicolai Schmid): **nothing older than 30 days**, automated, in
+both copies: the Storage Box and Black's local Garage copy. A current deployment
+always keeps its newest backup, so a stalled backup never deletes its last good copy.
+That copy is reported as over-age. This replaces the earlier manual 14 daily /
+8 weekly / 6 monthly suggestion (about six months). It also replaces a first proposal
+of `--keep-daily 30`, which counts days with a backup: missed days would have kept
+june-prod's data about 39 days.
 
 Where it runs: **Forge**, as the root launchd daemon `product-backup-retention`
 (`hosts/forge/product-backup-retention.nix`, daily 12:15, log
@@ -194,9 +197,12 @@ Each run (`scripts/storage-box/retention.py`) fails closed:
    or compact. Compacting would make such a deletion permanent. Investigate and
    recover from Borg transaction history first.
 2. It prunes each series `NAME-<export timestamp>` with
-   `--glob-archives 'NAME-[0-9]*' --keep-daily 30`. It derives series from the
-   repository, so retired deployments get the same rule. An archive outside that
-   naming scheme fails the run.
+   `--glob-archives 'NAME-[0-9]*' --keep-within 30d`. Current deployments
+   (`hosts/black/convex/deployments.nix`) also get `--keep-last 1`. It derives
+   series from the repository, so a retired deployment (for example
+   `modus-dev`/`modus-prod`) is deleted entirely once its archives pass 30 days. An
+   archive outside that naming scheme fails the run. Prune only marks archives
+   deleted; the compaction in step 3 is what frees their data on the Storage Box.
 3. It records the survivors as the next baseline. It then compacts, except in
    dry-run mode and on the first run without a baseline.
 4. It writes `last-run.json` (pruned names, survivor count, compaction, and
@@ -210,18 +216,9 @@ or an external monitor reads the receipt, check the log after deployment and wee
 Missed runs (Forge at the FileVault screen after a reboot) only delay pruning and
 are not reported.
 
-**"30 daily archives" is not a strict 30-day maximum.** Prune counts days that have
-an archive, so missed backup days push the oldest survivor past 30 days. That
-matters for **june-prod**, the only deployment holding customer (Kanzlei) data. It
-has no archives for 2026-11-05..10 (before recurring activation), 2026-11-17 or
-2026-11-19. Even with daily backups from 2026-11-20, its 2026-11-04 bootstrap
-archives would survive until about 2026-12-13 (about 39 days), and later archives
-until about 32 days. A series that stops receiving archives also keeps its last
-archives indefinitely. The receipt's `over_age` list shows such survivors. A strict
-cap needs an explicit operator decision: a one-off `borg delete` with retention
-credentials, or changing the rule. The retired `modus-dev`/`modus-prod` archives
-(2026-11-04) hold no records, so they contain no customer data and do not affect
-the promise.
+Only june-prod holds customer (Kanzlei) data (see below). Its bootstrap archives
+from 2026-11-04 are the oldest and are deleted on the first real run after
+2026-12-04.
 
 ### Activate (operator, from the Mac)
 
@@ -274,26 +271,20 @@ after the same check.
 
 Only june-prod holds customer data, checked 2026-11-19 by table names and record counts,
 not content. june-dev holds test data, and the modus-gateway deployments hold gateway
-usage metadata with no Kanzlei content (see the TOMs). The 30-day promise therefore
-binds the june-prod copies below; the others are listed for completeness.
+usage metadata with no Kanzlei content (see the TOMs). The rules below apply to every
+deployment. All of them run in `convex-NAME-backup` on Black (`hosts/black/convex.nix`)
+after each successful export.
 
-- Garage `NAME-backups/daily` on Black (`hosts/black/convex.nix`): the newest 14
-  export ZIPs per deployment. That is well within 30 days while backups run (oldest
-  on 2026-11-19: 2026-11-05 for june-prod, 2026-11-07 for the others). Deletion runs
-  only after a successful export, so a stalled deployment keeps its last 14
-  indefinitely. This is not off-host recovery.
-- Garage `june-prod-exports`: **customer data, not pruned**. These are Convex's own
-  snapshot-export objects, one per daily backup plus any manual export. Nothing in this
-  repository prunes them, and Convex had removed none by 2026-11-19. 31 objects: the
-  ones from 2026-10-31..11-02 are empty (906 bytes, before the migration), and full
-  production exports start 2026-11-03. Those pass 30 days on **2026-12-03**. The same
-  unpruned growth applies to the other deployments' `-exports` buckets, which hold no
-  customer data.
-- Garage `june-prod-snapshot-imports`: **customer data, not pruned**. It holds one
-  214 MB full production snapshot from the 2026-11-03 migration, which passes 30 days
-  on **2026-12-03**. june-dev's three imports (2026-10-30) are 23–1,917-byte test
-  fixtures, and the modus-gateway buckets are empty.
-- Borg: june-prod's 2026-11-04 bootstrap archives are covered in the caveat above.
+- Garage `NAME-backups/daily`: the local copy of every backup ZIP, kept as long as
+  the off-host copy. ZIPs older than 30 days are deleted; the newest is always kept.
+  This is a convenience copy, not off-host recovery. At june-prod's current size
+  (about 240 MB a day) it needs about 7 GB.
+- Garage `NAME-exports`: Convex's own export objects. Each one is the same ZIP as the
+  daily backup. They are deleted after 14 days. On 2026-11-19 nothing had removed
+  them; june-prod held 31, with full production exports from 2026-11-03.
+- Garage `NAME-snapshot-imports`: upload files of finished snapshot imports, deleted
+  after 14 days. On 2026-11-19 this was june-prod's 214 MB production migration
+  snapshot (2026-11-03) and june-dev's three test fixtures (2026-10-30).
 
 ## Isolated restore acceptance (required before claiming recoverability)
 

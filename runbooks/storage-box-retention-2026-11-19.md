@@ -1,22 +1,26 @@
 # Storage Box 30-day retention — 2026-11-19
 
-Decision (Nicolai Schmid, 2026-11-19): the off-host Borg repository
-`product-backup/repo` keeps the newest 30 daily archives per deployment series
-(`--keep-daily 30`, no weekly or monthly), pruned and compacted automatically. This
+Decision (Nicolai Schmid, 2026-11-19): nothing older than 30 days, in both the
+off-host Borg repository `product-backup/repo` (`--keep-within 30d`, plus
+`--keep-last 1` for current deployments) and Black's local Garage copy, pruned
+automatically. Convex export objects and import uploads in Garage are deleted after
+14 days. This
 matches MODUS's AVV Anlage 2 and the DSFA ("täglich verschlüsselt … gesichert und dort
 30 Tage aufbewahrt"). The design is in the
 [recovery runbook](storage-box-product-recovery.md#retention-30-days).
 
 ## Status
 
-Implemented, **not yet active**. The Forge daemon is in the configuration with
+Implemented, **not yet active**. Black's Garage rules take effect with the next
+Black switch. The Forge daemon is in the configuration with
 `enable = false`, `dryRun = true`. No retention key exists on the Storage Box yet.
 `secrets/product-backup-retention.yaml` is not yet created. No host switch was made,
 and no archive was pruned or compacted.
 
 ## Dry run against the real repository
 
-Read-only, 2026-11-19 ~18:00 CET, from Black through its append-only writer, under
+Read-only, 2026-11-19 ~18:00 CET (with the first-proposed `--keep-daily 30`; under
+`--keep-within 30d` the result is the same, because nothing is older than 15 days), from Black through its append-only writer, under
 Black's backup lock (`/var/lib/product-backup/lock`), Borg 1.4.4:
 `borg prune --dry-run --list --glob-archives 'NAME-[0-9]*' --keep-daily 30` for every
 series in the repository.
@@ -45,7 +49,8 @@ Observed while doing this:
   and the modus-gateway deployments hold gateway usage metadata. Retired
   `modus-dev`/`modus-prod` hold no records.
 - Because of its gaps (2026-11-05..10, 11-17, 11-19), june-prod's 2026-11-04 bootstrap
-  archives would survive `--keep-daily 30` until about 2026-12-13 (about 39 days).
+  archives would have survived `--keep-daily 30` until about 2026-12-13. That is why
+  the rule became `--keep-within 30d`.
 
 ## Other copies checked (Black Garage, 2026-11-19)
 
@@ -56,6 +61,11 @@ Observed while doing this:
 | june-prod-snapshot-imports | yes | 1 (214 MB) | 2026-11-03 | no pruning; over 30 days on 2026-12-03 |
 | june-dev-* | no (test data; imports 23–1,917-byte fixtures) | 14 / 23 / 3 | — | not bound |
 | modus-gateway-*-* | no (usage metadata) | 14 / 22 / 0 each | — | not bound |
+
+State before this change. After the next Black switch, each daily backup run
+deletes ZIPs older than 30 days from `-backups` (keeping the newest), and objects
+older than 14 days from `-exports` and `-snapshot-imports`. The first run removes the
+june-prod migration snapshot and the exports from before 2026-11-06.
 
 `/var/lib/product-backup/bootstrap` on Black is empty. Its Borg cache (112K) holds
 no payload.

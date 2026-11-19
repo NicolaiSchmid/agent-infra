@@ -8,9 +8,9 @@
 # Code, GitHub runners) cannot read. The SOPS file is encrypted to Forge's host
 # key and the operator only, never to Black.
 #
-# Daily at 12:15, well clear of Black's 03:30-04:00 writes: per archive series
-# keep the newest `keepDaily` daily archives, then compact. `dryRun` (the
-# default) only lists what would be pruned.
+# Daily at 12:15, well clear of Black's 03:30-04:00 writes: delete archives
+# older than `keepDays` (a current deployment always keeps its newest), then
+# compact. `dryRun` (the default) only lists what would be pruned.
 {
   config,
   lib,
@@ -19,6 +19,7 @@
 }: let
   cfg = config.services.productBackupRetention;
   target = import ../storage-box-repository.nix;
+  current = builtins.attrNames (import ../black/convex/deployments.nix).deployments;
   stateDir = "/var/lib/product-backup-retention";
   logFile = "/var/log/product-backup-retention.log";
   secret = name: config.sops.secrets."product-backup-retention/${name}".path;
@@ -35,10 +36,11 @@
       export BORG_CONFIG_DIR=${stateDir}/config
       umask 077
       install -d -m 0700 ${stateDir}
-      echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) retention keep-daily=${toString cfg.keepDaily}${lib.optionalString cfg.dryRun " (dry-run)"}"
+      echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) retention keep-days=${toString cfg.keepDays}${lib.optionalString cfg.dryRun " (dry-run)"}"
       status=0
       python3 ${../../scripts/storage-box/retention.py} --state ${stateDir} \
-        --keep-daily ${toString cfg.keepDaily} ${lib.optionalString cfg.dryRun "--dry-run"} || status=$?
+        --keep-days ${toString cfg.keepDays} --current ${lib.concatStringsSep " " current} \
+        ${lib.optionalString cfg.dryRun "--dry-run"} || status=$?
       if [ "$status" -ne 0 ]; then
         echo "Retention failed with status $status" >&2
         ${
@@ -58,10 +60,10 @@ in {
       default = true;
       description = "List what would be pruned; never prune or compact";
     };
-    keepDaily = lib.mkOption {
+    keepDays = lib.mkOption {
       type = lib.types.ints.positive;
       default = 30;
-      description = "Daily archives kept per deployment series (AVV Anlage 2: 30 days)";
+      description = "Archives older than this many days are deleted (AVV Anlage 2: 30 days)";
     };
     pushover.enable = lib.mkEnableOption "Pushover alerts on retention failure (requires product-backup-retention/alert-config)";
   };

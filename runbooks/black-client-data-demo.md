@@ -419,8 +419,11 @@ Actions job with a Tailscale auth key, or by hand).
 including file storage (`POST /api/export/request/zip?includeStorage=true`,
 what `npx convex export --include-file-storage` does), waits for it, downloads
 the zip and uploads it to `<name>-backups/daily/<UTC time>-<ts>.zip` in
-Garage, keeping the newest 14. The backend also keeps its own copy of each
-export in `<name>-exports` for 14 days.
+Garage. ZIPs older than 30 days are deleted and the newest is always kept, the
+same 30 days as the off-host copy (runbooks/storage-box-product-recovery.md).
+The backend's own copy of each export in `<name>-exports` and finished
+snapshot-import uploads in `<name>-snapshot-imports` are deleted after 14 days
+by the same job; nothing else removes them.
 
 ```bash
 systemctl start convex-june-dev-backup      # run now

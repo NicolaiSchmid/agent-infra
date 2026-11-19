@@ -1,15 +1,17 @@
 """Scheduled retention for the off-host product Borg repository.
 
 Runs on the retention host (Forge), never on Black: Black's writer key is
-append-only. Every archive series NAME-<export timestamp> keeps its newest
-KEEP_DAILY daily archives (Borg `--keep-daily`, nothing weekly or monthly).
+append-only. Nothing older than 30 days is kept (Borg `--keep-within 30d`;
+AVV Anlage 2). A current deployment's series (`--current`) also always keeps its
+newest archive (`--keep-last 1`), so a stalled backup never deletes its last good
+copy. A retired deployment's series ages out completely.
 
 Order, all fail-closed:
 1. list the archives and compare with the previous run's survivors. An
    append-only writer can still mark archives deleted, and compaction would
    make that permanent, so an archive that vanished without this job pruning
    it stops the run before any prune or compact;
-2. prune each series (dry-run lists only);
+2. prune each series NAME-<export timestamp> (dry-run lists only);
 3. record the survivors as the next baseline;
 4. compact, unless dry-run or this run had no earlier baseline to check;
 5. write the receipt `last-run.json`.
@@ -83,13 +85,13 @@ def write_json(path, value):
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument('--state', required=True, type=Path)
-    p.add_argument('--keep-daily', required=True, type=int)
-    p.add_argument('--max-age-days', type=int, default=30,
-                   help='report (not delete) surviving archives older than this')
+    p.add_argument('--keep-days', required=True, type=int)
+    p.add_argument('--current', required=True, nargs='+',
+                   help='deployments whose newest archive is always kept')
     p.add_argument('--dry-run', action='store_true')
     args = p.parse_args(argv)
-    if args.keep_daily < 1:
-        raise ValueError('--keep-daily must keep at least one archive')
+    if args.keep_days < 1:
+        raise ValueError('--keep-days must be at least 1')
 
     baseline_file = args.state / 'archives.json'
     baseline = json.loads(baseline_file.read_text()) if baseline_file.exists() else None
@@ -100,9 +102,10 @@ def main(argv=None):
 
     for name in names:
         print(f'## {name}', flush=True)
+        keep_last = ['--keep-last', '1'] if name in args.current else []
         borg('prune', '--list', *(['--dry-run'] if args.dry_run else []),
-             '--glob-archives', f'{name}-[0-9]*', '--keep-daily', str(args.keep_daily),
-             capture=False)
+             '--glob-archives', f'{name}-[0-9]*', '--keep-within', f'{args.keep_days}d',
+             *keep_last, capture=False)
 
     after = before if args.dry_run else list_archives()
     pruned = sorted(before[i]['name'] for i in before.keys() - after.keys())
@@ -116,12 +119,13 @@ def main(argv=None):
         print('No earlier baseline: compaction deferred to the next run.', file=sys.stderr)
 
     now = datetime.now(timezone.utc)
-    old = over_age(after, args.max_age_days, now)
+    # Dry-run survivors, or a stalled deployment's last archive.
+    old = over_age(after, args.keep_days, now)
     if old:
-        print(f'Warning: {len(old)} surviving archives older than {args.max_age_days} days: '
+        print(f'Warning: {len(old)} surviving archives older than {args.keep_days} days: '
               + ', '.join(old), file=sys.stderr)
     write_json(args.state / 'last-run.json', {
-        'completed_at': time.time(), 'dry_run': args.dry_run, 'keep_daily': args.keep_daily,
+        'completed_at': time.time(), 'dry_run': args.dry_run, 'keep_days': args.keep_days,
         'series': names, 'archives': len(after), 'pruned': pruned, 'compacted': compacted,
         'over_age': old})
     print(f'{"Would keep" if args.dry_run else "Kept"} {len(after)} archives; '
