@@ -214,13 +214,13 @@ in {
     ++ lib.mapAttrsToList (name: _: "d ${store name} 2750 agent-source agent-artifacts -") instances;
 
   # Each June deployment's Convex network reaches its own instance only. No
-  # Traefik route and no public address. tailscale0 is trusted on black, so
-  # the ports are refused there, like E2B's (e2b.nix).
+  # Traefik route and no public address; the tailnet is refused like E2B's
+  # ports (tailnet-refuse.nix).
   networking.firewall.extraCommands = lib.concatStrings (lib.mapAttrsToList (name: instance: ''
-      ip46tables -I nixos-fw -i tailscale0 -p tcp --dport ${toString instance.port} -j nixos-fw-refuse
       ip46tables -I nixos-fw -i ${bridge name} -p tcp --dport ${toString instance.port} -j nixos-fw-accept
     '')
     instances);
+  networking.firewall.tailnetRefusedTCPPorts = lib.mapAttrsToList (_: instance: toString instance.port) instances;
 
   # The source repository rides along with its deployment's nightly product
   # backup. The artifact store does not: it is rebuilt from source.

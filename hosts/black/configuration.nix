@@ -17,6 +17,7 @@ in {
     ./client-data.nix
     ./hosted-runner.nix
     ./agent-source.nix
+    ./tailnet-refuse.nix
     ./t3code.nix
   ];
 

@@ -68,11 +68,11 @@
     ];
   };
   # Ports the stack listens on in the host network namespace that the
-  # tailnet must not reach (tailscale0 is trusted on black): client-proxy
+  # tailnet must not reach (tailnet-refuse.nix drops them): client-proxy
   # health 3003, orchestrator 5007/5008 (an unauthenticated control API) and
   # 6061, api gRPC 5009/5109, pprof 6060. The api (3000) and client-proxy
   # (3002) stay open to it.
-  hostPorts = "3001,3003,5007:5009,5109,6060,6061";
+  hostPorts = ["3001" "3003" "5007:5009" "5109" "6060" "6061"];
 in {
   boot.kernelModules = ["nbd" "tun"];
   boot.extraModprobeConfig = "options nbd nbds_max=${envValue "NBDS_MAX"} max_part=16";
@@ -102,12 +102,12 @@ in {
     ++ map (path: "d ${dataDir}/host/${dirName path} 0755 root root -") hostDirs;
 
   networking.firewall = {
+    tailnetRefusedTCPPorts = hostPorts;
     # The orchestrator REDIRECTs sandbox traffic (hyperloop, NFS, portmapper,
     # the egress TCP firewall) to its ports 5010-5018 here. Its host-side
     # sandbox interfaces are veth-<slot>.
     extraCommands = ''
       ip46tables -I nixos-fw -i veth-+ -p tcp -m multiport --dports 5010:5018 -j nixos-fw-accept
-      ip46tables -I nixos-fw -i tailscale0 -p tcp -m multiport --dports ${hostPorts} -j nixos-fw-refuse
       # Convex actions call the api and client-proxy through host-gateway;
       # every Convex deployment's network is a bridge named cvx-<cloudPort>.
       ip46tables -I nixos-fw -i cvx-+ -p tcp -m multiport --dports 3000,3002 -j nixos-fw-accept
