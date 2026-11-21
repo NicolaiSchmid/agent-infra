@@ -5,18 +5,17 @@
 # pins bytes the operator provisions on black. Bump all of them together:
 # runbooks/black-agent-source.md, "Bump the eve-deployments pin".
 {
-  # eve-deployments PR #113 merge commit on main (2026-11-19): a failed build
-  # stays failed, `{"retry": true}` starts a new attempt, and only commits on
-  # main are built. Includes PR #111 (owner-writable toolchain copies) and
-  # PR #112 (a proxy's non-JSON error reply is transport loss).
-  revision = "1df39aa2b67e28b8a26ab58fd0ea8da132895833";
+  # eve-deployments PR #116 merge commit on main (2026-11-21): guests default
+  # to 256 MiB. Includes PR #115 (a guest crash ends its delivery with an
+  # `ending` on `retire`, not the runner) and everything up to PR #113.
+  revision = "a75ddbc7dac8c8ca91b780e2cd41b6d418a1d5d2";
   # NAR hash of `git archive <revision>` unpacked (`nix hash path`).
-  sourceHash = "sha256-lgYQZ00nlQtmdMccb+jbAi1hKL0L/7Pw/33ksEFjBng=";
+  sourceHash = "sha256-hlp1E1mqi9WAObo00P/b20Kyp5wI6gWBr8k31cW0kNk=";
   # fetchNpmDeps of that tree's package-lock.json (`prefetch-npm-deps`).
   npmDepsHash = "sha256-I7qC4awVQ9naCwXzqFb2TEqjFMqo280DcrMpSgm/VRg=";
   # The CI run's `native-runner` artifact for the same revision.
   runner = {
-    run = "44559403471";
-    sha256 = "7dfbd41d04284eb384043b38a66f6296fd7410aa49f3aedaa003f3308aecbb83";
+    run = "44952790607";
+    sha256 = "034a6659d3102f143dde81693f2a1bd4a7ab5b5ff653b50ef19522b74c2fbe75";
   };
 }
