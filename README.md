@@ -178,4 +178,5 @@ ssh atlas 'docker ps --filter name=hermes'
 - [Phone SBC on black](runbooks/black-phone-sbc.md)
 - [Hosted workflow runner on black (E5)](runbooks/black-hosted-runner.md)
 - [Agent source, builder and artifact store on black (A1)](runbooks/black-agent-source.md)
+- [Hosted runner live acceptance, 2026-11-21](runbooks/hosted-runner-acceptance-2026-11-21.md)
 - [Secrets](secrets/README.md)

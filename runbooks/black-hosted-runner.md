@@ -284,6 +284,8 @@ acceptance: a staff-started release in the MODUS org must still make funded
 MODUS inference with run-linked usage, request a real tool approval, resume,
 survive runner death mid-effect without repeating the write, sleep across
 guests, and finish with output in June. All acceptance data remains synthetic.
+The 2026-11-21 run in June prod (MODUS org) and its open points are in
+[hosted-runner-acceptance-2026-11-21.md](hosted-runner-acceptance-2026-11-21.md).
 
 If rollout fails, stop the runners and wait for cleanup. Preserve state,
 credentials, private bundle and selected pins. A failure of the agent-source
