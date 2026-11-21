@@ -213,11 +213,13 @@ so a lost artifact needs a new commit.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #113's merge commit (`1df39aa`,
-2026-11-19), whose CI run is green: E6 (PR #109), owner-writable toolchain
-copies in the builder (PR #111), the runner's proxy-404 retry (PR #112), and
-failed builds that stay failed with an explicit retry and main-only builds
-(PR #113).
+and the toolchain. It pins eve-deployments PR #116's merge commit (`a75ddbc`,
+2026-11-21), whose CI run is green, gVisor job included: E6 (PR #109),
+owner-writable toolchain copies in the builder (PR #111), the runner's
+proxy-404 retry (PR #112), failed builds that stay failed with an explicit
+retry and main-only builds (PR #113), a guest crash that ends its delivery
+instead of the runner (PR #115, which June's delivery-failure count from June
+PR #1455 reads), and a 256 MiB default guest (PR #116).
 To move it, change all of these in one agent-infra PR:
 
 1. `revision`: the eve-deployments commit on `main`.
@@ -233,7 +235,14 @@ To move it, change all of these in one agent-infra PR:
 Then provision the new runner bundle and toolchain source, build and root
 the new toolchain before the switch (the night block's `nix build` line; the
 service refuses to start without it), stop both services, wait for runner
-cleanup, and switch. A toolchain change changes the
+cleanup, and switch. A bump alone changes neither Docker's runtime
+registration nor the runsc package, so the switch restarts only the runner
+and agent-source units, not dockerd, and needs no night window; confirm with
+`nixos-rebuild build` that `docker.service` and `/etc/docker/daemon.json` are
+unchanged before switching. Check that the guest image of eve-deployments
+`scripts/fixtures/gvisor-config.json` and `src/target-artifact.ts` are
+unchanged between the two revisions; if either changed, follow "Select the
+environment pin" in [black-hosted-runner.md](black-hosted-runner.md) first. A toolchain change changes the
 toolchain identity: existing commits keep their recorded digests, new builds
 need new commits.
 
