@@ -21,6 +21,28 @@
     # through the operator CLI.
     june-prod = {enable = true;};
   };
+  # Black's one alert path: Pushover through scripts/storage-box/alert.py,
+  # enabled with services.productBackup.pushover (off until an application
+  # token exists). Until then the failure is only a fixed journal line.
+  pushover = config.services.productBackup.pushover.enable;
+  failureAlert = {
+    description = "Alert that hosted runner %i is failed";
+    after = lib.optional pushover "sops-install-secrets.service";
+    path = [pkgs.python3];
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    scriptArgs = "%i";
+    script = ''
+      echo "<2>Hosted runner unit $1 is failed and no longer polls June; see runbooks/black-hosted-runner.md" >&2
+      ${
+        if pushover
+        then ''python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config hosted-runner "$1"''
+        else "echo '<3>Push delivery unavailable: an existing Pushover application token is required' >&2"
+      }
+    '';
+  };
   service = name: instance: let
     user = "hosted-runner-${name}";
     state = "/var/lib/${user}";
@@ -71,6 +93,9 @@
     unitConfig = {
       StartLimitIntervalSec = 600;
       StartLimitBurst = 10;
+      # Fires once the unit stays failed (start limit hit); RestartMode=direct
+      # keeps automatic restarts out of the failed state, so they do not fire it.
+      OnFailure = ["hosted-runner-failed@%n.service"];
     };
     serviceConfig = {
       Type = "simple";
@@ -92,6 +117,7 @@
       RuntimeDirectoryMode = "0700";
       UMask = "0077";
       Restart = "on-failure";
+      RestartMode = "direct";
       RestartSec = 30;
       # Keep the flock helper alive until custody cleanup finishes. Forced
       # termination still leaves durable proof for fail-closed recovery.
@@ -136,5 +162,7 @@ in {
       group = "hosted-runner-${name}";
     })
   instances;
-  systemd.services = lib.mapAttrs' (name: instance: lib.nameValuePair "hosted-runner-${name}" (service name instance)) instances;
+  systemd.services =
+    lib.mapAttrs' (name: instance: lib.nameValuePair "hosted-runner-${name}" (service name instance)) instances
+    // {"hosted-runner-failed@" = failureAlert;};
 }
