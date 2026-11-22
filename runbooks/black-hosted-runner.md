@@ -11,8 +11,8 @@ prod, in the MODUS org, with synthetic agents and data only, because June
 dev's Convex backend is in an out-of-memory restart loop. Real client data on
 black stays blocked by O2 of June's runtime plan; the guard is that only staff
 activate releases and create installations, through June's operator CLI
-(internal functions, admin key). Each runner executes one delivery at a time
-(O4); this is a limit for a second firm.
+(internal functions, admin key). Each runner executes up to its slot count of
+deliveries at once (June's G6; see [Slots](#slots)).
 
 The trusted native process has a separate system user per deployment, only
 supplementary Docker access (root-equivalent), no login or Convex admin key.
@@ -57,6 +57,56 @@ read-only root and no host credentials. Docker puts guests in black's existing
 limits do not bound Docker-created guests. gVisor uses the same 2026-11-02
 release and flags as eve-deployments CI: systrap and `--host-uds=open` for the
 scoped broker socket. Docker's default runtime stays unchanged.
+
+## Slots
+
+Decided on 2026-11-22 (June's G6, decisions 11 to 13): runs wait in one June
+queue and each runner runs up to `slots` deliveries at once
+(`instances.<deployment>.slots` in `hosts/black/hosted-runner.nix`, passed as
+`slots` in the runner JSON; behaviour in eve-deployments
+`docs/june-runner.md#runner-slots`). Set on 2026-11-22: **june-prod 2,
+june-dev 1**. A runner revision before slot support rejects the field, so this
+setting goes live only in a switch whose `eve-deployments.nix` pin includes
+eve-deployments PR #120.
+
+Per slot, from eve-deployments' guest policy: 0.5 CPU (`--cpus`), and the
+release's `memoryMiB` as the Docker memory limit (256 MiB by default, 512 MiB
+at most, tmpfs mounts included). Guests of both runners run in
+`client-data.slice` (`hosts/black/client-data.nix`): `MemoryMax` 4 GiB
+(`MemoryHigh` 3750 MiB), `CPUQuota` 300%. The Convex containers in that slice
+(`hosts/black/convex/deployments.nix`) have limits of 768 MiB and 1 CPU
+(june-dev), 1536 MiB and 0.5 CPU (modus-gateway-dev) and 1536 MiB and 1 CPU
+(modus-gateway-prod): 3840 MiB and 2.5 CPUs, before Traefik, Garage and
+routes-api. June prod's backend has its own `juneprod.slice` and is not in
+this sum.
+
+On those limits the slice has no headroom left: 4096 − 3840 = 256 MiB and
+3 − 2.5 = 0.5 CPU, which is one guest at the default memory and CPU. Black
+ran two guests (one per runner) before slots; three slots in total add one
+guest:
+
+| | Guests | Memory at 256 MiB | Memory at 512 MiB | CPU |
+| --- | --- | --- | --- | --- |
+| Before (1 + 1) | 2 | 512 MiB | 1 GiB | 1 |
+| Now (2 + 1) | 3 | 768 MiB | 1.5 GiB | 1.5 |
+
+The containers rarely sit at their limits, so the slice holds this in
+practice, but it is not reserved: under pressure the slice is throttled at
+`MemoryHigh`, and the kernel's OOM killer inside the slice may pick any
+container, a Convex backend included, since all carry `oom_score_adj` 1000.
+CPU beyond the quota only slows everything in the slice. No ceiling changes
+here; raising the slice is a host-memory decision
+(`runbooks/june-production-capacity.md`).
+
+The runner units scale `TasksMax` with their slots (64 per slot); their 512 MiB
+memory limit covers the about 26 MiB of buffers each extra delivery holds.
+
+Before raising a slot count, measure the slice under load
+(`systemctl show client-data.slice -p MemoryCurrent -p MemoryPeak`) and check
+the queue on June's `/dashboard/runs` (runs waiting, slots in use). More than
+one more guest needs either measured headroom or the guests in their own
+slice with their own ceiling (a Docker `--cgroup-parent` set by the runner,
+not built yet).
 
 ## Disk and maintenance prerequisites
 
