@@ -73,29 +73,44 @@ Per slot, from eve-deployments' guest policy: 0.5 CPU (`--cpus`), and the
 release's `memoryMiB` as the Docker memory limit (256 MiB by default, 512 MiB
 at most, tmpfs mounts included). Guests of both runners run in
 `client-data.slice` (`hosts/black/client-data.nix`): `MemoryMax` 4 GiB
-(`MemoryHigh` 3750 MiB), `CPUQuota` 300%. The Convex containers in that slice
-(`hosts/black/convex/deployments.nix`) have limits of 768 MiB and 1 CPU
-(june-dev), 1536 MiB and 0.5 CPU (modus-gateway-dev) and 1536 MiB and 1 CPU
-(modus-gateway-prod): 3840 MiB and 2.5 CPUs, before Traefik, Garage and
-routes-api. June prod's backend has its own `juneprod.slice` and is not in
-this sum.
+(`MemoryHigh` 3750 MiB), `CPUQuota` 300%. Docker's default cgroup parent is
+that slice, so every container on black except June prod's backend (its own
+`juneprod.slice`) shares it. Read on black on 2026-11-22, their Docker limits
+add up to 8224 MiB and about 10.9 CPUs:
 
-On those limits the slice has no headroom left: 4096 − 3840 = 256 MiB and
-3 − 2.5 = 0.5 CPU, which is one guest at the default memory and CPU. Black
-ran two guests (one per runner) before slots; three slots in total add one
-guest:
+| Containers | Memory limit | CPU limit |
+| --- | --- | --- |
+| Convex backends: june-dev, modus-gateway-dev, modus-gateway-prod | 768 + 1536 + 1536 MiB | 1 + 0.5 + 1 |
+| Convex dashboard, its Tailscale sidecar, Convex portal | 256 + 128 + 128 MiB | 0.5 + 0.25 + 0.25 |
+| E2B stack (`hosts/black/e2b.nix`): orchestrator, ClickHouse, API, Postgres, client proxy, Redis, Vector, ready | 1024 + 768 + 512 + 384 + 256 + 128 + 128 + 32 MiB | 2 + 0.5 + 1 + 0.5 + 0.5 + 0.25 + 0.25 + 0.1 |
+| Traefik, Garage, routes-api | 256 + 256 + 128 MiB | 1 + 1 + 0.25 |
+| `sip-spike` | none | none |
+
+So the slice is oversubscribed about two to one before any guest; it has no
+reserved headroom, and the slot count rests on actual use, not on limits. On
+2026-11-22 the slice used 1.5 GiB; its peak sat at `MemoryHigh`, and its own
+`memory.events.local` showed 2,709,077 `high` events (throttling and
+reclaim) but no `max` or `oom` event. The out-of-memory kills of the last 24
+hours were all at a container's own limit: 193 of June dev's Convex backend
+(its 768 MiB, the restart loop above) and 5 gVisor sentries at their guest
+limit. That loop does not take more than its 768 MiB from the slice, but
+each restart refills it, adding to the reclaim pressure guests run under.
+The host itself had about 3.6 GiB available of 62 GiB, with 5.7 GiB of swap
+in use.
+
+Black ran two guests (one per runner) before slots; three slots in total add
+one guest:
 
 | | Guests | Memory at 256 MiB | Memory at 512 MiB | CPU |
 | --- | --- | --- | --- | --- |
 | Before (1 + 1) | 2 | 512 MiB | 1 GiB | 1 |
 | Now (2 + 1) | 3 | 768 MiB | 1.5 GiB | 1.5 |
 
-The containers rarely sit at their limits, so the slice holds this in
-practice, but it is not reserved: under pressure the slice is throttled at
-`MemoryHigh`, and the kernel's OOM killer inside the slice may pick any
-container, a Convex backend included, since all carry `oom_score_adj` 1000.
-CPU beyond the quota only slows everything in the slice. No ceiling changes
-here; raising the slice is a host-memory decision
+Under pressure the slice is throttled at `MemoryHigh`; should it reach
+`MemoryMax`, the kernel's OOM killer inside the slice may pick any container,
+a Convex backend included, since all carry `oom_score_adj` 1000. CPU beyond
+the quota only slows everything in the slice. No ceiling changes here;
+raising the slice is a host-memory decision
 (`runbooks/june-production-capacity.md`).
 
 The runner units scale `TasksMax` with their slots (64 per slot); their 512 MiB
