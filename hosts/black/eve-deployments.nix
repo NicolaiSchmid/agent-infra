@@ -5,17 +5,17 @@
 # pins bytes the operator provisions on black. Bump all of them together:
 # runbooks/black-agent-source.md, "Bump the eve-deployments pin".
 {
-  # eve-deployments PR #116 merge commit on main (2026-11-21): guests default
-  # to 256 MiB. Includes PR #115 (a guest crash ends its delivery with an
-  # `ending` on `retire`, not the runner) and everything up to PR #113.
-  revision = "a75ddbc7dac8c8ca91b780e2cd41b6d418a1d5d2";
+  # eve-deployments PR #117 merge commit on main (2026-11-22): the runner
+  # measures guest CPU, memory and network for June's usage ledger. Includes
+  # PR #116 (guests default to 256 MiB) and everything before it.
+  revision = "01189cce608c498e935c019b707f3978acef331a";
   # NAR hash of `git archive <revision>` unpacked (`nix hash path`).
-  sourceHash = "sha256-hlp1E1mqi9WAObo00P/b20Kyp5wI6gWBr8k31cW0kNk=";
+  sourceHash = "sha256-JXYjNcVMG3jjVjvLXO0usEp94mqIDBDtXvR5H4R8Xws=";
   # fetchNpmDeps of that tree's package-lock.json (`prefetch-npm-deps`).
   npmDepsHash = "sha256-I7qC4awVQ9naCwXzqFb2TEqjFMqo280DcrMpSgm/VRg=";
   # The CI run's `native-runner` artifact for the same revision.
   runner = {
-    run = "44952790607";
-    sha256 = "034a6659d3102f143dde81693f2a1bd4a7ab5b5ff653b50ef19522b74c2fbe75";
+    run = "45054018189";
+    sha256 = "04822cb3d75d2ebf92e22258b395243898a9248bed0c4b9281273f622e37eff9";
   };
 }
