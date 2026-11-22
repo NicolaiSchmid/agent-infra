@@ -77,6 +77,9 @@
         <rng model='virtio'>
           <backend model='random'>/dev/urandom</backend>
         </rng>
+        <memballoon model='virtio' freePageReporting='on'>
+          <stats period='10'/>
+        </memballoon>
       </devices>
     </domain>
   '';
@@ -111,6 +114,7 @@ in {
     path = [
       pkgs.coreutils
       pkgs.libvirt
+      pkgs.gnugrep
       pkgs.gnused
       pkgs.qemu
     ];
@@ -139,8 +143,18 @@ in {
         # mode. The running Atlas was switched to unmap live on 2026-11-18
         # (QMP blockdev-reopen of both file nodes, VM paused about 0.1 s); a
         # VM still on ignore needs that reopen or a full stop and start.
+        #
+        # Free page reporting (2026-11-23): without it the balloon never hands
+        # pages Atlas has freed back to black, so black counted ~39 GiB for a
+        # guest using ~17 GiB plus page cache. Like discard, it is a QEMU
+        # device property: it takes effect at the next cold start of Atlas
+        # (`virsh shutdown atlas` then `virsh start atlas`), not on a reboot
+        # from inside the guest. Page cache stays in the guest until Linux
+        # drops it; reporting returns only pages the guest has freed.
         virsh dumpxml atlas --inactive > /run/atlas-domain-discard.xml
         sed -i "s/discard='ignore'/discard='unmap'/g" /run/atlas-domain-discard.xml
+        grep -q "freePageReporting=" /run/atlas-domain-discard.xml \
+          || sed -i "s/<memballoon model='virtio'>/<memballoon model='virtio' freePageReporting='on'>/" /run/atlas-domain-discard.xml
         virsh define /run/atlas-domain-discard.xml
       fi
       virsh autostart atlas
