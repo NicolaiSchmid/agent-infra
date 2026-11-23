@@ -238,6 +238,11 @@ runuser -u agent-source -- \
   --expect "$PWD/agent-artifacts/referenced.json"
 ```
 
+`restore` exists from eve-deployments #123's merge commit on. While
+`hosts/black/eve-deployments.nix` pins an older revision, run it from a
+checkout of a revision that has it (`npm ci --ignore-scripts`, Node 24): it
+builds nothing, so the toolchain identity does not matter.
+
 The next start sets the hook and the push settings again. `restore` refuses
 the whole set when one object fails verification or a digest from
 `referenced.json` is absent; records already in the store win, and running it
