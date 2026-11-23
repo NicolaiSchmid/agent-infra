@@ -289,8 +289,9 @@ first drill on real archives has not run yet.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #123's merge commit (`08d282c`,
-2026-11-23): artifacts flushed before they are published or reported (PR
+and the toolchain. It pins eve-deployments PR #124's merge commit (`8e233e6`,
+2026-11-23): restore in pages of 16 with a pending inbox view and a 4 MiB
+page budget (phase 1 of June's replay compaction plan), on top of artifacts flushed before they are published or reported (PR
 #122) and `restore` of backed-up bundles by digest (PR #123), on top of
 runner slots (PR #120), runs that complete after their turn (PR #119) and
 everything before: E6 (PR #109), owner-writable toolchain copies in the
