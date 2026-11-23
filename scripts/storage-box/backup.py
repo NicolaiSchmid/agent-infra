@@ -51,6 +51,21 @@ def bundle_repository(repository, target):
 DIGEST = re.compile(r'sha256:[a-f0-9]{64}')
 AGENT = re.compile(r'[a-z0-9][a-z0-9-]{0,62}')
 COMMIT_RECORD = re.compile(r'[a-f0-9]{40}\.json')
+COMMIT = re.compile(r'[a-f0-9]{40}')
+
+
+def valid_record(record, agent, name):
+    """eve-deployments `parseBuildRecord` (src/agent-source/artifact-store.ts),
+    plus the record's own path: its `restore` refuses the whole backup on one
+    record that fails it, so such a record never enters the archive."""
+    text = lambda key: isinstance(record.get(key), str)
+    return (isinstance(record, dict) and record.get('agent') == agent
+            and text('commit') and record['commit'] + '.json' == name
+            and text('agentTree') and COMMIT.fullmatch(record['agentTree'])
+            and all(text(k) and DIGEST.fullmatch(record[k]) for k in ('digest', 'toolchain', 'environment'))
+            and record.get('protocol') == 2
+            and type(record.get('bytes')) is int and abs(record['bytes']) <= 2 ** 53 - 1
+            and text('builtAt'))
 
 
 def referenced_digests(export):
@@ -124,10 +139,15 @@ def collect_artifacts(store, digests, target):
             # skipped: the snapshot and the verified bundles still go off-host.
             try:
                 text = read_regular(builds / agent / name)
-                if json.loads(text).get('digest') not in wanted:
-                    continue
-            except (OSError, ValueError, AttributeError):
-                print(f'Skipped unreadable build record builds/{agent}/{name}', file=sys.stderr)
+                record = json.loads(text)
+            except (OSError, ValueError):
+                record = None
+            if not isinstance(record, dict) or record.get('digest') not in wanted:
+                if record is None:
+                    print(f'Skipped unreadable build record builds/{agent}/{name}', file=sys.stderr)
+                continue
+            if not valid_record(record, agent, name):
+                print(f'Skipped invalid build record builds/{agent}/{name}', file=sys.stderr)
                 continue
             (target / 'builds' / agent).mkdir(parents=True, exist_ok=True)
             (target / 'builds' / agent / name).write_bytes(text)

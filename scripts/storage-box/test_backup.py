@@ -108,7 +108,10 @@ def put_bundle(store, data, agent='hello', commit='1' * 40, reported=True):
     path.write_bytes(data)
     builds = store / 'builds' / agent
     builds.mkdir(parents=True, exist_ok=True)
-    (builds / (commit + '.json')).write_text(json.dumps({'agent': agent, 'commit': commit, 'digest': digest}))
+    (builds / (commit + '.json')).write_text(json.dumps({
+        'agent': agent, 'commit': commit, 'agentTree': 'a' * 40, 'digest': digest,
+        'toolchain': 'sha256:' + 'b' * 64, 'environment': 'sha256:' + 'c' * 64,
+        'protocol': 2, 'bytes': len(data), 'builtAt': '2026-11-23T00:00:00.000Z'}))
     if reported:
         (builds / (commit + '.reported')).write_text(digest + '\n')
     return digest
@@ -153,6 +156,14 @@ class AgentArtifactsTest(unittest.TestCase):
             again.mkdir()
             self.assertEqual(backup.collect_artifacts(store, [kept], again)['agent_artifact_digests'], [kept])
             self.assertTrue((again / 'builds' / 'hello' / ('1' * 40 + '.json')).is_file())
+            # A parseable record that eve's restore would refuse stays out.
+            record = store / 'builds' / 'hello' / ('1' * 40 + '.json')
+            broken = dict(json.loads(record.read_text()), protocol=1)
+            record.write_text(json.dumps(broken))
+            third = root / 'third'
+            third.mkdir()
+            self.assertEqual(backup.collect_artifacts(store, [kept], third)['agent_artifact_digests'], [kept])
+            self.assertFalse((third / 'builds').exists())
             self.assertEqual(backup.collect_artifacts(store, [], root / 'unused'),
                              {'agent_artifacts': 'none', 'agent_artifact_digests': []})
 
