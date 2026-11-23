@@ -7,6 +7,7 @@ import subprocess
 import sys
 import shutil
 import io
+import hashlib
 import os
 import tarfile
 import json
@@ -92,6 +93,126 @@ class AgentSourceTest(unittest.TestCase):
             subprocess.run(['git', 'clone', '-q', '--mirror', str(root / 'b'), str(restored)], check=True, env=env)
             head = lambda r: subprocess.check_output(['git', '-C', str(r), 'rev-parse', 'main'], env=env)
             self.assertEqual(head(restored), head(repository))
+
+def write_export(path, releases=(), runs=()):
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('hostedReleases/documents.jsonl', ''.join(json.dumps(r) + '\n' for r in releases))
+        z.writestr('hostedRuns/documents.jsonl', ''.join(json.dumps(r) + '\n' for r in runs))
+
+
+def put_bundle(store, data, agent='hello', commit='1' * 40, reported=True):
+    """A store entry exactly as eve-deployments' artifact store writes it."""
+    digest = 'sha256:' + hashlib.sha256(data).hexdigest()
+    path = store / 'objects' / 'sha256' / digest[7:9] / digest[7:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    builds = store / 'builds' / agent
+    builds.mkdir(parents=True, exist_ok=True)
+    (builds / (commit + '.json')).write_text(json.dumps({'agent': agent, 'commit': commit, 'digest': digest}))
+    if reported:
+        (builds / (commit + '.reported')).write_text(digest + '\n')
+    return digest
+
+
+class AgentArtifactsTest(unittest.TestCase):
+    def test_referenced_digests_follow_june_rule(self):
+        a, b, c = ('sha256:' + x * 64 for x in 'abc')
+        with tempfile.TemporaryDirectory() as d:
+            export = Path(d) / 'export.zip'
+            write_export(export,
+                         releases=[{'status': 'active', 'artifact': a}, {'status': 'retired', 'artifact': c}],
+                         runs=[{'status': 'open', 'artifact': b}, {'status': 'open', 'artifact': a},
+                               {'status': 'succeeded', 'artifact': c}])
+            self.assertEqual(backup.referenced_digests(export), [a, b])
+            write_export(export, runs=[{'status': 'open', 'artifact': '../x'}])
+            with self.assertRaises(ValueError):
+                backup.referenced_digests(export)
+            with zipfile.ZipFile(export, 'w') as z:
+                z.writestr('other/documents.jsonl', '{}\n')
+            self.assertEqual(backup.referenced_digests(export), [])
+
+    def test_collects_only_referenced_bundles_verified(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = root / 'store'
+            kept = put_bundle(store, b'open run bundle')
+            put_bundle(store, b'collected later', commit='2' * 40)
+            target = root / 'out'
+            target.mkdir()
+            result = backup.collect_artifacts(store, [kept], target)
+            self.assertEqual(result['agent_artifacts'], 'bundled')
+            self.assertEqual(result['agent_artifact_digests'], [kept])
+            files = sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file())
+            self.assertEqual(files, [f'builds/hello/{"1" * 40}.json', f'builds/hello/{"1" * 40}.reported',
+                                     f'objects/sha256/{kept[7:9]}/{kept[7:]}', 'referenced.json'])
+            self.assertEqual(json.loads((target / 'referenced.json').read_text()), [kept])
+            self.assertEqual(backup.collect_artifacts(store, [], root / 'unused'),
+                             {'agent_artifacts': 'none', 'agent_artifact_digests': []})
+
+    def test_missing_or_damaged_referenced_bundle_fails_the_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = root / 'store'
+            digest = put_bundle(store, b'bundle')
+            (root / 'a').mkdir()
+            with self.assertRaisesRegex(ValueError, 'not in the store'):
+                backup.collect_artifacts(store, ['sha256:' + 'e' * 64], root / 'a')
+            path = store / 'objects' / 'sha256' / digest[7:9] / digest[7:]
+            path.write_bytes(b'torn')
+            (root / 'b').mkdir()
+            with self.assertRaisesRegex(ValueError, 'fails verification'):
+                backup.collect_artifacts(store, [digest], root / 'b')
+            path.unlink()
+            path.symlink_to(root / 'elsewhere')
+            (root / 'elsewhere').write_bytes(b'bundle')
+            (root / 'c').mkdir()
+            with self.assertRaisesRegex(ValueError, 'not in the store'):
+                backup.collect_artifacts(store, [digest], root / 'c')
+
+    def test_restore_drill_archive_holds_every_bundle_its_snapshot_needs(self):
+        """Backup, extract, verify: the steps of the drill in
+        runbooks/black-agent-source.md before eve-deployments' restore."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            store = root / 'store'
+            digest = put_bundle(store, b'bundle of an open run')
+            put_bundle(store, b'unreferenced', commit='3' * 40)
+            secrets = root / 'secrets'
+            secrets.mkdir()
+            for name in ('convex-demo.env', 'convex-demo-admin-key'):
+                (secrets / name).write_text('fixture')
+            config = root / 'config'
+            (config / 'hosts' / 'black' / 'convex').mkdir(parents=True)
+            for name in ('flake.lock', 'hosts/black/convex/compose.yaml', 'hosts/black/convex/deployments.nix'):
+                (config / name).write_text('fixture')
+            export = root / 'export.zip'
+            write_export(export, runs=[{'status': 'open', 'artifact': digest}])
+            extracted = root / 'extracted'
+            def borg(command, **kwargs):
+                shutil.copytree(kwargs['cwd'], extracted)
+                return subprocess.CompletedProcess(command, 0, stdout=b'{}')
+            args = ['backup', 'demo', str(export), '123', '--state', d, '--secrets', str(secrets),
+                    '--config', str(config), '--agent-artifacts', str(store)]
+            with patch.object(sys, 'argv', args), patch.object(subprocess, 'check_output', return_value=b'{"encryption":{"mode":"repokey-blake2"}}'), patch.object(subprocess, 'run', side_effect=borg):
+                backup.main()
+            verify = [sys.executable, str(Path(__file__).with_name('verify-restore.py')), str(extracted)]
+            result = subprocess.run(verify, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('referenced bundles verified', result.stdout)
+            with tarfile.open(extracted / 'recovery.tar') as tar:
+                bundles = [n for n in tar.getnames() if n.startswith('agent-artifacts/objects/') and tar.getmember(n).isfile()]
+            self.assertEqual(bundles, [f'agent-artifacts/objects/sha256/{digest[7:9]}/{digest[7:]}'])
+            # A tampered bundle in the archive fails the drill.
+            work = root / 'tampered'
+            with tarfile.open(extracted / 'recovery.tar') as tar:
+                tar.extractall(work, filter='data')
+            (work / bundles[0]).write_bytes(b'tampered')
+            with tarfile.open(extracted / 'recovery.tar', 'w') as tar:
+                for item in sorted(work.iterdir()):
+                    tar.add(item, arcname=item.name)
+            result = subprocess.run(verify, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
 
 class PublicKeyTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which('age') and shutil.which('age-keygen'), 'age integration tools required')

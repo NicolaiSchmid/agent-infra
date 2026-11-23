@@ -7,13 +7,20 @@
 }: let
   cfg = config.services.productBackup;
   names = builtins.attrNames (import ./convex/deployments.nix).deployments;
+  # Per deployment: its agent source repository and its artifact store
+  # (hosts/black/agent-source.nix), each only where one is declared.
+  agentArgs =
+    lib.genAttrs (lib.unique (builtins.attrNames cfg.agentSourceRepositories ++ builtins.attrNames cfg.agentArtifactStores))
+    (name:
+      lib.optionals (cfg.agentSourceRepositories ? ${name}) ["--agent-source" cfg.agentSourceRepositories.${name}]
+      ++ lib.optionals (cfg.agentArtifactStores ? ${name}) ["--agent-artifacts" cfg.agentArtifactStores.${name}]);
   runner = pkgs.writeShellApplication {
     name = "product-backup";
     runtimeInputs = [pkgs.borgbackup pkgs.age pkgs.git pkgs.openssh pkgs.python3 pkgs.util-linux config.virtualisation.docker.package pkgs.systemd];
     text = ''
       extra=()
       case "$1" in
-        ${lib.concatStrings (lib.mapAttrsToList (name: repository: "${name}) extra=(--agent-source ${lib.escapeShellArg repository}) ;;\n") cfg.agentSourceRepositories)}
+        ${lib.concatStrings (lib.mapAttrsToList (name: args: "${name}) extra=(${lib.escapeShellArgs args}) ;;\n") agentArgs)}
       esac
       export BORG_REPO=${lib.escapeShellArg cfg.repository}
       export BORG_PASSCOMMAND="cat /run/secrets/product-backup/passphrase"
@@ -41,6 +48,11 @@ in {
       type = lib.types.attrsOf lib.types.str;
       default = {};
       description = "Deployment name to the agent source repository bundled into its backup";
+    };
+    agentArtifactStores = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = {};
+      description = "Deployment name to the artifact store whose referenced bundles go into its backup";
     };
     pushover.enable = lib.mkEnableOption "Pushover alerts (requires an existing application token and user key)";
     repository = lib.mkOption {

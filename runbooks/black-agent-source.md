@@ -31,7 +31,7 @@ Names below use `<d>` for the deployment, `june-dev` or `june-prod`.
 | Environment pin | `/root/hosted-runner/june-dev-release.json` | `/root/hosted-runner/june-prod-release.json` | the runner's file ([black-hosted-runner.md](black-hosted-runner.md)), read by both services |
 | June | `http://127.0.0.1:13211` | `http://127.0.0.1:13221` | the deployment's Convex HTTP actions on loopback; the builder never uses the public network |
 | Timers | `agent-source-<d>-gc.timer` daily, `agent-source-<d>-git.timer` weekly | same | GC asks June which digests are referenced and deletes nothing if June cannot answer; `git gc --auto` and `git fsck` |
-| Backup | June dev's nightly product backup | June prod's | `git bundle create --all` of the repository inside the backup lock, as `agent-source/repo.bundle` in `recovery.tar`; the store is not backed up |
+| Backup | June dev's nightly product backup | June prod's | `git bundle create --all` of the repository inside the backup lock, as `agent-source/repo.bundle` in `recovery.tar`; every bundle the same archive's Convex snapshot references, verified, as `agent-artifacts/` in `recovery.tar` (see "Backup and restore") |
 | Toolchain | `nix build .#agent-source-toolchain` | eve-deployments at the pin in `hosts/black/eve-deployments.nix`, `npm ci --ignore-scripts`, pinned model catalog; rooted at `/nix/var/nix/gcroots/agent-source-toolchain` |
 | Push | `agent-source@black`, login shell `git-shell` | tailnet only, see "First commit" |
 
@@ -189,26 +189,90 @@ A failed build writes the guest's log tail to the journal only.
 
 ## Backup and restore
 
-The nightly `convex-<d>-backup` adds `agent-source/repo.bundle` to its
-encrypted product archive and records `agent_source` (`bundled`, `empty` or
-`absent`) and the bundle's SHA-256 in `manifest.json`. Recovery follows
-[storage-box-product-recovery.md](storage-box-product-recovery.md); then, with
-the service stopped:
+The nightly `convex-<d>-backup` adds to its encrypted product archive:
+
+- `agent-source/repo.bundle`, the repository, with `agent_source` (`bundled`,
+  `empty` or `absent`) and the bundle's SHA-256 in `manifest.json`;
+- `agent-artifacts/`, every bundle the archive's own Convex export references
+  (active `hostedReleases`, open `hostedRuns`; June's
+  `apps/june/convex/hostedRuns/builds.ts` `referenced`), in the store's layout
+  (`objects/sha256/<2 hex>/<64 hex>`, their `builds/<agent>/<commit>.json` and
+  `.reported`) plus `referenced.json`, the digest list. `manifest.json` records
+  `agent_artifacts` (`bundled` or `none`) and `agent_artifact_digests`.
+
+Each bundle is read without following symlinks and verified against its digest
+before it enters the archive. A referenced bundle that is missing or damaged
+fails that night's backup (no receipt, so the hourly health check reports it):
+that archive could not resume the run. Rebuilding is no recovery path, because
+a commit whose toolchain is gone is refused a rebuild (June keeps each commit's
+first digest). Each archive is self-contained; bundles no longer referenced
+leave the backup when the 30-day retention removes the archives that hold them.
+Why and the decisions: June's `.plans/2026-11-23-hosted-artifact-durability.md`.
+
+### Restore
+
+Recovery of the archive follows
+[storage-box-product-recovery.md](storage-box-product-recovery.md); after
+`verify-restore.py` (which also checks every referenced bundle against its
+digest and against the snapshot), with both services of the deployment
+stopped (`agent-source-<d>`, `hosted-runner-<d>`):
 
 ```sh
 d=june-prod   # or june-dev
-git clone --mirror repo.bundle /var/lib/agent-source/$d/repo.git
+tar -xf recovery.tar agent-source agent-artifacts
+git clone --mirror agent-source/repo.bundle /var/lib/agent-source/$d/repo.git
 git -C /var/lib/agent-source/$d/repo.git config receive.denyNonFastForwards true
 git -C /var/lib/agent-source/$d/repo.git config receive.denyDeletes true
 git -C /var/lib/agent-source/$d/repo.git remote remove origin
 chown -R agent-source:agent-source /var/lib/agent-source/$d/repo.git
+# Bundles: verified against their digests before anything is written, then
+# written through the store's flushed path. Run as the store's owner from the
+# realised toolchain (rooted at /nix/var/nix/gcroots/agent-source-toolchain).
+# node: the one the unit's start script runs.
+start=$(systemctl show -p ExecStart --value agent-source-$d | grep -o '/nix/store/[^ ;]*' | head -1)
+node=$(grep -o '/nix/store/[^ ]*/bin/node' "$start" | head -1)
+chown -R agent-source agent-artifacts
+runuser -u agent-source -- \
+  "$node" /nix/var/nix/gcroots/agent-source-toolchain/scripts/agent-source.ts \
+  restore /var/lib/agent-artifacts/$d "$PWD/agent-artifacts" \
+  --expect "$PWD/agent-artifacts/referenced.json"
 ```
 
-The next start sets the hook and the push settings again.
+The next start sets the hook and the push settings again. `restore` refuses
+the whole set when one object fails verification or a digest from
+`referenced.json` is absent; records already in the store win, and running it
+twice changes nothing. Then restore June's Convex snapshot from the same
+archive, start the services, and check that each open run's digest resolves:
+the runner reads the restored store by digest, no build runs. Bundles of
+releases created after the archive's snapshot are not in it; their builds are
+asked for again (same source and toolchain, same digest).
 
-Artifacts come back by requesting builds again: same source and toolchain,
-same digest. After a toolchain change June keeps each commit's first digest,
-so a lost artifact needs a new commit.
+### Restore drill
+
+Required before claiming that an open run survives a disaster, and after any
+change to the backup or the store layout. Off black, on an isolated recovery
+host, never against a live store:
+
+1. Pick the newest archive of the deployment, extract and decrypt it as in
+   [storage-box-product-recovery.md](storage-box-product-recovery.md), run
+   `verify-restore.py <dir>`: it must print `referenced bundles verified`.
+2. Restore the bundles into an empty scratch store with the `restore` command
+   above (scratch path instead of `/var/lib/agent-artifacts/$d`); it prints
+   `{"objects": [...], "records": n}` with exactly `agent_artifact_digests`.
+3. For one digest of an open run, resolve it through the runner's resolver
+   against the scratch store (eve-deployments `createArtifactResolver` over
+   `storeArtifactRead`, as in `tests/agent-source-restore.test.ts`) and check
+   the entrypoint.
+4. Corrupt one byte of one restored bundle in a copy of the archive's
+   `agent-artifacts/`: `restore` must refuse and write nothing.
+5. Record date, archive name, digest count and the outcome in a dated
+   acceptance note next to this runbook; delete the scratch copies.
+
+On synthetic data the same chain runs in CI: agent-infra's
+`scripts/storage-box/test_backup.py` (backup, extract, verify, tampered
+archive refused) and eve-deployments' `tests/agent-source-restore.test.ts`
+(restore into an empty store, resolve by digest, damaged backup refused). The
+first drill on real archives has not run yet.
 
 ## Bump the eve-deployments pin
 
