@@ -135,3 +135,109 @@ Each run left no guest behind: `runsc list` was empty after every run.
 - The pre-existing open runs' `eve-wake` firing on the new runner after
   04:02Z.
 - Screenshots of `/dashboard/runs` and Usage: no staff session.
+
+## June journeys after merge (2026-11-23 10:26–10:53Z)
+
+G3, G5, G6 and G7 ran on June prod after the June pull requests merged. The
+production build of June main `3f3cbe9` (G7, the last of them) reported
+success at 10:35:46Z. June prod then served `hostedRuns/runner:poll`, the
+schedule `mode` and the usage fields `installationId` and `hostedRunId`.
+G3, G5 and G6 had already deployed with their own merge commits (09:13,
+09:26 and 10:06Z). Black was not switched: it stayed on the integration pin
+above, with `0789c89` and two slots for June prod. The data was synthetic and
+everything ran in the MODUS org. Raw logs are in `/tmp/live-june-a88e9a7f/` on
+Atlas.
+
+### Runner slots against June with `poll`
+
+- June prod's runner kept its process from the switch. It had logged the
+  fallback line once at 23:27:58Z, and the runner logs nothing when `poll`
+  starts to work. Proof that it polls: the `hostedRunners` row
+  `black-june-prod`, `slots: 2`, was created at 10:06:41Z, seconds after
+  G6 reached June prod.
+- After the G3 runner kill below, the restarted runner logged only
+  `Runner ready` (10:40:29Z), with no fallback line.
+- june-dev's runner has been `failed` (`start-limit-hit`) since 01:30Z. It
+  exits with `Runner stopped with startup, ownership or cleanup failure`
+  against june-dev, which runs code from before J9. It was left alone.
+
+### Agents
+
+Four agents were committed through the June prod source API (`POST
+/v1/agents/<slug>/commits`) and built by black's builder:
+
+- `j23-call`: one June code call that waits 20 s.
+- `j23-hold`: 40 s, then one model call.
+- `j23-long` and `j23-skip`: 75 s each, no model call.
+
+A fifth, `j23-end`, was a copy of `g23-end` with one model call. A retired
+release cannot be activated again, so the `g23-*` releases could not be
+reused. June has one installation per agent and tenant, so G5 needed two
+agents.
+
+| Agent | Installation | Release |
+| --- | --- | --- |
+| j23-call | `kx8ba1x5fmdhb83ct1p0vmtgs18jsegm` | `g587t1my…` (setTimeout version), then `g584tvr1acbc5xf8tdrrr0dkvx8jrxj3` |
+| j23-hold | `kx823bvj6yz663ahjfx43fx6z58js42t` | `g58ac0zeshnpa1279rbwzb2rs58jsk91` |
+| j23-long | `kx83mvf7kpqh5rfg6205rgq0g58jsp4k` | `g58d76hmzt5y4s9qtsdyxg08z58jsnpb` |
+| j23-skip | `kx89hnn3jy6ga5am7bg751qdeh8js0pe` | `g5834p3agavhcwm932qx262sbx8jsx0h` |
+| j23-end | `kx84e4h55187pyyxchyhsexqwx8js2yz` | `g58e9yh607pz0avxz4h4gwb4r98jsmh7` |
+
+June's code runtime (QuickJS) has no `setTimeout`. The first `j23-call` run,
+`hd80hyfb…`, therefore recorded its call as `failed` at once (`'setTimeout'
+is not defined`) and did not test G3. The agent was changed to busy-wait
+inside the 55 s program limit.
+
+### Results
+
+| Journey | Result | Evidence |
+| --- | --- | --- |
+| G3, cancel during a June call (decision 7) | Pass | Run `hd894da6bpjvckj9ag54p8an218jsrx8`. Call `j23-call-slow`/0 was claimed at 10:38:50.2 and seen `started` at 10:38:50.50. `cancel` returned at 10:38:50.77. The guest's request ended with `499` at 10:38:50.92 (Convex HTTP log). June's action kept running: by 10:39:11 `show … calls` had the call `succeeded`, fence 1, attempt 0, result `{"waitedMs":20000}`. The run is `cancelled` with no authority and no custody, and its authority `g987r6j6…` is `retired: true`. A later call with that run's token could not be sent from outside: the token stays on the runner. That refusal is covered by `tool-calls-after-cancel.test.ts` in CI |
+| G3, runner kill during a June call | Pass | Run `hd8adt4529h1xte2ttphj6gq6d8jsa2j`. The call was `started` at 10:39:58.54. The runner was SIGKILLed at 10:39:58.58, as in the 2026-11-21 acceptance, and systemd restarted it at 10:40:28. The run was delivered again at fence 2 on the new runner generation and `completed` at 10:40:38. The ledger holds one row, `succeeded` at fence 1, so the redelivery replayed it and the call never ran again. Both custodies are `clean` |
+| G5, schedule modes (decision 8) | Pass | Every-minute cron on both installations from 10:45:00 to 10:48:06Z, when both were paused. Brute force admitted `hd8ec587` at 10:45, `hd86f41m` at 10:46, `hd832kj2` at 10:47 and `hd864jer` at 10:48. Two of them were open at the same time at 10:46 and at 10:47. Skip admitted `hd8ata2w` at 10:45. At 10:46 it logged `hosted_installation_tick_skipped` `{installationId: kx89hnn3…, at: 1795430760000, openRunId: hd8ata2w…}`. After that run completed (10:46:3x), it admitted `hd831pzh` at 10:47. At 10:48 it skipped again with `openRunId: hd831pzh…`. Nothing was admitted after the pause. The event comes from `convex logs` (`admitScheduled`), not `docker logs` of the backend container |
+| G6, parallel slots and the queue (decisions 11–13) | Pass | `j23-hold` runs `hd8ba8p2…`, `hd87daem…` and `hd825swh…` were started within 0.7 s, at 10:41:33Z. From 10:41:38 to 10:42:25 there were two gVisor guests, two live custodies and the third run waiting. The staff queue view (`hostedRuns/dashboard:queue`, run as a staff identity) read `waiting=1 live=2 inUse=[2]`. The first two completed at 10:42:28.7 and 10:42:28.8. The third was claimed at 10:42:30.9 and completed at 10:43:23. The view then read `waiting=0 live=1 inUse=[1]`. Oldest first held. No guest was left |
+| G7, installation and run on usage lines (decision 14) | Pass (queries) | Every `usageLedger` line of the 13 test runs carries `installationId` and `hostedRunId`: `gvisor`/`hosted_runtime`, `june`/`execute` and `modus-gateway`/`agent` (`cheap`, channel `background`). In `usageDaily`, `hostedRunId` is null where several runs meet (the three `j23-hold` runs), as designed. `j23-end` run `hd89gj62g4yvp5y15h0qgq1ag98jre2a` was its installation's only run that day. Its rows keep the run in `usage/reads:workspaceAdmin`, read as an admin identity: 12 rows with `hostedRunId: hd89gj62…`, and `workflows` names all five agents. `ledger-usage.logic.ts` links such a row to `/dashboard/runs/<runId>` |
+
+### Side effects
+
+- Billing: all 117 `usageLedger` lines written between the baseline
+  (10:32:55Z) and 10:52Z were checked. The 111 hosted lines all belong to the
+  13 test runs. The model cost was 4 requests, 69 input tokens and 40 output
+  tokens through the MODUS gateway. The other 6 lines are `codex`
+  `soul_analysis` in another workspace, unrelated to the test.
+- Each run left no guest behind. At the end black had 0 gVisor guests and 21
+  containers, the same as before. `convex-june-prod-backend-1` was not
+  restarted (`StartedAt` 2026-11-23T01:19:04Z, before this test). Black's
+  disk was at 98 % (20 GiB free) before and after.
+- The 2026-11-21 open runs: between #105's cleanup and this baseline, their
+  `eve-wake` had fired on the new runner. `hd8emdxk…` moved from revision 129,
+  fence 4 to revision 135, fence 5, and `hd81nqxy…` from 37, fence 2 to 43,
+  fence 3. Both are still `open`, and their next wakes are due on
+  2026-11-24. This test left their rows, timers and calls unchanged.
+
+### Cleanup (10:51–10:53Z)
+
+- All five installations are paused, and the six releases created here are
+  retired.
+- The 13 test runs were deleted with `operator delete --confirm=delete-run
+  --operator=j23-journeys` and purged. Against the 10:32:55Z baseline:
+  - `hostedRuns` 55, `hostedRunAuthorities` 184, `hostedRunCustodies` 184 and
+    `hostedRunTimers` 51 are back at baseline, with no baseline row missing
+    or changed.
+  - `hostedRunCalls` keeps only its five earlier rows.
+  - Beyond the baseline, there are 5 more installations and 6 more releases,
+    which the operator cannot delete.
+- The agent folders `j23-*` stay in June prod's source repository, which
+  refuses deletes.
+- The admin key file on Atlas and the clone on black were deleted.
+
+### Not verified
+
+- Screenshots of `/dashboard/runs` and of the Usage page's Workflow column:
+  there is no staff browser session (WorkOS login). Only the queries behind
+  them were read.
+- A call with a retired run token: the token never leaves the runner. Only
+  the retired authority and the guest's 499 were shown.
+- Whether the fence-2 redelivery got `outcome: replayed`: the ledger row
+  count and attempt show the call did not run again, but the guest's reply
+  was not decoded.
