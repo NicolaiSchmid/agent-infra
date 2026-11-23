@@ -26,6 +26,10 @@
   # The deployments and their domain live in convex/deployments.nix, which
   # routes.nix reads too.
   inherit (import ./convex/deployments.nix) baseDomain deployments;
+  # The executor databases (executor-db.nix): each one's backend joins that
+  # server's internal network, and only that backend.
+  executorDbs = (import ./executor-db/instances.nix).instances;
+  executorNetworks = name: lib.mapAttrsToList (db: _: "executor-db-${db}") (lib.filterAttrs (_: i: i.convex == name) executorDbs);
   # The dashboard's own tailnet node (convex/dashboard.yaml), not black's
   # name, so it keeps its address when the stack moves.
   tailnetHost = "convex.takaya-buri.ts.net";
@@ -49,18 +53,28 @@
       CONVEX_MEMORY=${d.memory}
       CONVEX_CPUS=${d.cpus}
     '';
-  # Everything else an entry sets (deployments.nix), as a Compose overlay;
-  # none for an entry that only sets the required fields.
-  overrides = d:
+  # Everything else an entry sets (deployments.nix) and its executor
+  # database networks, as a Compose overlay; none for an entry that only sets
+  # the required fields and has no executor database.
+  overrides = name: d:
     lib.optionalAttrs (d ? image) {inherit (d) image;}
     // lib.optionalAttrs (d ? environment) {inherit (d) environment;}
     // lib.optionalAttrs (d ? slice) {
       cgroup_parent = "${d.slice}.slice";
       memswap_limit = d.memory;
       pids_limit = d.pids;
+    }
+    // lib.optionalAttrs (executorNetworks name != []) {
+      # Compose merges these with the template's networks.
+      networks = lib.genAttrs (executorNetworks name) (_: {});
     };
+  # The executor database networks are external to this project; on a fresh
+  # host or a first switch they may not exist yet (executor-db.nix creates
+  # them too).
+  ensureNetworks = name: map (net: "${pkgs.bash}/bin/sh -c '${docker} network inspect ${net} >/dev/null 2>&1 || ${docker} network create --internal ${net} >/dev/null'") (executorNetworks name);
+  overlayNetworks = name: lib.genAttrs (executorNetworks name) (_: {external = true;});
   overlay = name: d:
-    lib.optionalString (overrides d != {}) " -f ${pkgs.writeText "convex-${name}-overlay.json" (builtins.toJSON {services.backend = overrides d;})}";
+    lib.optionalString (overrides name d != {}) " -f ${pkgs.writeText "convex-${name}-overlay.json" (builtins.toJSON ({services.backend = overrides name d;} // lib.optionalAttrs (executorNetworks name != []) {networks = overlayNetworks name;}))}";
   compose = name: d: "${docker} compose -p convex-${name} --project-directory ${dataDir name} -f ${./convex/compose.yaml}${overlay name d} --env-file ${envFile name d}";
   sliced = lib.filterAttrs (_: d: d ? slice) deployments;
   # The portal's mounts, generated: the script, its config, every admin key.
@@ -219,9 +233,12 @@
         Type = "oneshot";
         RemainAfterExit = true;
         TimeoutStartSec = "15min";
-        ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p ${dataDir name}";
+        ExecStartPre = ["${pkgs.coreutils}/bin/mkdir -p ${dataDir name}"] ++ ensureNetworks name;
         ExecStart = "${compose name d} up -d --wait --remove-orphans";
-        ExecReload = "${compose name d} up -d --wait --remove-orphans";
+        # A switch reloads changed units before it starts new ones, so the
+        # reload that first joins an executor database network runs before
+        # executor-db-<name> has created it.
+        ExecReload = ensureNetworks name ++ ["${compose name d} up -d --wait --remove-orphans"];
         ExecStartPost = pkgs.writeShellScript "convex-${name}-admin-key" ''
           set -eu
           [ -s ${adminKeyFile name} ] && exit 0
