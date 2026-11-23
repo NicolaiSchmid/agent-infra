@@ -1,0 +1,60 @@
+# One libSQL server (sqld) for one June executor database. Instantiated per
+# entry of instances.nix by hosts/black/executor-db.nix as project
+# executor-db-<name>, with a generated --env-file. Operations:
+# runbooks/black-executor-db.md.
+#
+# Reached by exactly one Convex backend, on the internal network
+# executor-db-<name> under the same name (http://executor-db-<name>:8080),
+# and by the host on loopback. Never on Traefik, no public port. Every
+# request needs a JWT signed by the instance's Ed25519 key; the private key
+# stays on the host (secrets/executor-db-<name>-jwt.key).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  sqld:
+    # libsql-server v0.24.33 (40a151bd, 2025-12-19), by digest.
+    image: ghcr.io/tursodatabase/libsql-server:v0.24.33@sha256:f8ca0134cdded747793888e48591aece07647d9d598d3ac229aabfa93159ca88
+    restart: unless-stopped
+    logging: *logging
+    # After the Convex backends (1000), before anything the host exists for.
+    oom_score_adj: 500
+    stop_grace_period: 10s
+    environment:
+      SQLD_DB_PATH: /var/lib/sqld/data
+      SQLD_HTTP_LISTEN_ADDR: 0.0.0.0:8080
+      SQLD_AUTH_JWT_KEY_FILE: /run/sqld/jwt.pub
+      RUST_LOG: info
+    volumes:
+      - ${EXECDB_DATA_DIR:?}:/var/lib/sqld
+      - ${EXECDB_JWT_PUB:?}:/run/sqld/jwt.pub:ro
+    ports:
+      # Loopback, for the backup and health timers and SSH tunnels.
+      - 127.0.0.1:${EXECDB_PORT:?}:8080
+    networks:
+      default: {}
+      executor:
+        aliases:
+          - executor-db-${EXECDB_NAME:?}
+    # The image has bash but no curl.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 6
+    cgroup_parent: executordb.slice
+    mem_limit: ${EXECDB_MEMORY:?}
+    memswap_limit: ${EXECDB_MEMORY:?}
+    cpus: 0.5
+    pids_limit: 128
+
+networks:
+  # Internal: no route out; shared only with the one Convex backend
+  # (convex.nix adds it there).
+  executor:
+    name: executor-db-${EXECDB_NAME:?}
+    external: true
