@@ -68,6 +68,10 @@
       # Compose merges these with the template's networks.
       networks = lib.genAttrs (executorNetworks name) (_: {});
     };
+  # The executor database networks are external to this project; on a fresh
+  # host or a first switch they may not exist yet (executor-db.nix creates
+  # them too).
+  ensureNetworks = name: map (net: "${pkgs.bash}/bin/sh -c '${docker} network inspect ${net} >/dev/null 2>&1 || ${docker} network create --internal ${net} >/dev/null'") (executorNetworks name);
   overlayNetworks = name: lib.genAttrs (executorNetworks name) (_: {external = true;});
   overlay = name: d:
     lib.optionalString (overrides name d != {}) " -f ${pkgs.writeText "convex-${name}-overlay.json" (builtins.toJSON ({services.backend = overrides name d;} // lib.optionalAttrs (executorNetworks name != []) {networks = overlayNetworks name;}))}";
@@ -229,13 +233,12 @@
         Type = "oneshot";
         RemainAfterExit = true;
         TimeoutStartSec = "15min";
-        # The executor database networks are external to this project; on a
-        # fresh host they may not exist yet (executor-db.nix creates them too).
-        ExecStartPre =
-          ["${pkgs.coreutils}/bin/mkdir -p ${dataDir name}"]
-          ++ map (net: "${pkgs.bash}/bin/sh -c '${docker} network inspect ${net} >/dev/null 2>&1 || ${docker} network create --internal ${net} >/dev/null'") (executorNetworks name);
+        ExecStartPre = ["${pkgs.coreutils}/bin/mkdir -p ${dataDir name}"] ++ ensureNetworks name;
         ExecStart = "${compose name d} up -d --wait --remove-orphans";
-        ExecReload = "${compose name d} up -d --wait --remove-orphans";
+        # A switch reloads changed units before it starts new ones, so the
+        # reload that first joins an executor database network runs before
+        # executor-db-<name> has created it.
+        ExecReload = ensureNetworks name ++ ["${compose name d} up -d --wait --remove-orphans"];
         ExecStartPost = pkgs.writeShellScript "convex-${name}-admin-key" ''
           set -eu
           [ -s ${adminKeyFile name} ] && exit 0
