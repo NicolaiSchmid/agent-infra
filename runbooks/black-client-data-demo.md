@@ -26,6 +26,7 @@ qemu, quota 3 CPUs, MemoryMax 4G):
 | `garage` (`hosts/black/garage/`) | single-node S3 (Garage v2.5.0) | docker network `garage` (`http://garage:3900`), `127.0.0.1:3900` (S3), `127.0.0.1:3903` (admin) |
 | `convex-provision` | Garage layout, per-deployment buckets, keys and secrets | oneshot |
 | `convex-<name>-backup.timer` | daily snapshot export into Garage | 03:30 + up to 30 min |
+| `executor-db-<name>` (`hosts/black/executor-db.nix`, `executor-db/`) | libSQL server (sqld) for June's executor database, own `executordb.slice`; daily dump into Garage, health every 5 min | internal docker network `executor-db-<name>` (`http://executor-db-<name>:8080`, only its Convex backend), loopback `127.0.0.1:<port>`; `runbooks/black-executor-db.md` |
 | `e2b` (`hosts/black/e2b.nix`, E2B Embed compose) | Firecracker sandboxes | tailnet: `http://black.takaya-buri.ts.net:3000` (api), `http://100.125.234.34:3002` (client-proxy); Convex containers: `http://host.docker.internal:3000`, `http://172.17.0.1:3002` |
 
 Deployments (in `hosts/black/convex/deployments.nix`):
@@ -99,6 +100,8 @@ deleting an entry from `passkeys.json` revokes that passkey.
 | `convex-tailscale.env` | `TS_AUTHKEY` for the `convex` node's first login; delete after | by hand (Dashboard) |
 | `e2b.env` | `TEAM_API_KEY` (SDK key), `ADMIN_TOKEN`, `SANDBOX_ACCESS_TOKEN_HASH_SEED` | `e2b-secrets` |
 | `routes-<project>-key` | the project's routes API key | `routes` (first start) |
+| `executor-db-<name>-jwt.key` | Ed25519 key that signs the executor database's tokens (`.pub` beside it is public) | `executor-db-<name>` (first start) |
+| `executor-db-<name>-backup.env` | Garage key for `executor-db-<name>-backups` | `executor-db-<name>-backup` (first run) |
 
 Each deployment's Garage key can read and write only its own buckets
 (`<name>-files`, `-modules`, `-search`, `-exports`, `-snapshot-imports`,

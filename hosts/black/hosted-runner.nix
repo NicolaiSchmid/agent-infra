@@ -12,14 +12,25 @@
   pin = import ./eve-deployments.nix;
   runner = "/var/lib/hosted-runner/releases/${pin.revision}/runner.mjs";
   checksum = pkgs.writeText "hosted-runner-checksum" "${pin.runner.sha256}  ${runner}\n";
+  # Slots: deliveries each runner runs at once (June's G6, 2026-11-22). The
+  # guests of both runners share client-data.slice with the Convex
+  # containers there; the arithmetic and when to raise these numbers are in
+  # runbooks/black-hosted-runner.md, "Slots". Needs a runner pin with slot
+  # support (eve-deployments PR #120); an older runner rejects the field.
   instances = {
-    june-dev = {enable = true;};
+    june-dev = {
+      enable = true;
+      slots = 1;
+    };
     # On since 2026-11-19 for acceptance in the MODUS org, synthetic agents
     # and data only (Nicolai Schmid; June dev's Convex is in an OOM restart
     # loop). Real client data stays blocked by O2 of June's runtime plan; the
     # guard is that only staff activate releases and create installations,
     # through the operator CLI.
-    june-prod = {enable = true;};
+    june-prod = {
+      enable = true;
+      slots = 2;
+    };
   };
   # Black's one alert path: Pushover through scripts/storage-box/alert.py,
   # enabled with services.productBackup.pushover (off until an application
@@ -47,7 +58,7 @@
     user = "hosted-runner-${name}";
     state = "/var/lib/${user}";
   in {
-    description = "June hosted workflow runner (${name}, one delivery at a time)";
+    description = "June hosted workflow runner (${name}, slots ${toString instance.slots})";
     wantedBy = lib.optionals instance.enable ["multi-user.target"];
     after = ["network-online.target" "docker.service"];
     wants = ["network-online.target"];
@@ -77,13 +88,15 @@
       jq -e --arg state ${lib.escapeShellArg state} \
         --arg owner ${lib.escapeShellArg "black-${name}"} \
         --arg key "/run/${user}/runner-key" \
-        --arg store ${lib.escapeShellArg "/var/lib/agent-artifacts/${name}"} '
+        --arg store ${lib.escapeShellArg "/var/lib/agent-artifacts/${name}"} \
+        --argjson slots ${toString instance.slots} '
         if keys != ["environment"] then error("release.json holds only {environment}") else
         {
           mode: "target-poll",
           owner: $owner,
           lockDirectory: ($state + "/locks"),
           pollIntervalMs: 1500,
+          slots: $slots,
           controlPlane: {backend: "june", runnerKeyFile: $key},
           artifact: {source: "store", store: $store, directory: ($state + "/artifact-cache")},
           environment: .environment
@@ -132,7 +145,8 @@
       CPUQuota = "100%";
       CPUWeight = 20;
       IOWeight = 20;
-      TasksMax = 64;
+      # Each live delivery runs its own Docker CLI processes and their threads.
+      TasksMax = 64 * instance.slots;
       OOMScoreAdjust = 900;
       OOMPolicy = "kill";
       NoNewPrivileges = true;
