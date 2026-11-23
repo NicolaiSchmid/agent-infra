@@ -197,13 +197,19 @@ The nightly `convex-<d>-backup` adds to its encrypted product archive:
   (active `hostedReleases`, open `hostedRuns`; June's
   `apps/june/convex/hostedRuns/builds.ts` `referenced`), in the store's layout
   (`objects/sha256/<2 hex>/<64 hex>`, their `builds/<agent>/<commit>.json` and
-  `.reported`) plus `referenced.json`, the digest list. `manifest.json` records
-  `agent_artifacts` (`bundled` or `none`) and `agent_artifact_digests`.
+  `.reported`) plus `referenced.json`, the digests the archive holds.
+  `manifest.json` records `agent_artifacts` (`bundled`, `incomplete` or
+  `none`), `agent_artifact_digests` (held) and `agent_artifact_missing`.
 
 Each bundle is read without following symlinks and verified against its digest
 before it enters the archive. A referenced bundle that is missing or damaged
-fails that night's backup (no receipt, so the hourly health check reports it):
-that archive could not resume the run. Rebuilding is no recovery path, because
+does not fail the backup: the archive keeps the snapshot and every other
+bundle, the receipt names the absent digests, and the hourly
+`product-backup-health` sends the "Product backup lacks hosted bundles" alert
+until a later backup holds them all. Runs on an absent bundle cannot resume
+from that archive. Archives written before this backup existed carry no
+`agent_artifacts` and are accepted as they are, without a backfill;
+`verify-restore.py` prints a warning for both cases. Rebuilding is no recovery path, because
 a commit whose toolchain is gone is refused a rebuild (June keeps each commit's
 first digest). Each archive is self-contained; bundles no longer referenced
 leave the backup when the 30-day retention removes the archives that hold them.
@@ -260,7 +266,8 @@ host, never against a live store:
 
 1. Pick the newest archive of the deployment, extract and decrypt it as in
    [storage-box-product-recovery.md](storage-box-product-recovery.md), run
-   `verify-restore.py <dir>`: it must print `referenced bundles verified`.
+   `verify-restore.py <dir>`: it must print `referenced bundles verified`
+   and no warning (a warning means the archive lacks bundles; pick another).
 2. Restore the bundles into an empty scratch store with the `restore` command
    above (scratch path instead of `/var/lib/agent-artifacts/$d`); it prints
    `{"objects": [...], "records": n}` with exactly `agent_artifact_digests`.

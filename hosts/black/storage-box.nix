@@ -82,7 +82,7 @@ in {
     environment.systemPackages = [runner];
     systemd.tmpfiles.rules = ["d /var/lib/product-backup 0700 root root -"];
     systemd.services.product-backup-health = {
-      description = "Alert on absent or stale off-host product backup";
+      description = "Alert on absent, stale or bundle-incomplete off-host product backup";
       after = ["sops-install-secrets.service"];
       requires = ["sops-install-secrets.service"];
       serviceConfig = {
@@ -90,13 +90,23 @@ in {
         UMask = "0077";
       };
       path = [pkgs.python3];
-      script = ''
-        if ! python3 ${../../scripts/storage-box/health.py} /var/lib/product-backup ${lib.concatStringsSep " " names}; then
-          ${
+      script = let
+        alert = message:
           if cfg.pushover.enable
-          then "python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config"
-          else "echo 'Push delivery unavailable: an existing Pushover application token is required' >&2"
-        }
+          then "python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config ${message}"
+          else "echo 'Push delivery unavailable: an existing Pushover application token is required' >&2";
+      in ''
+        # Bit 1: missing or stale backup. Bit 2: the latest archive lacks
+        # referenced hosted-workflow bundles; the backup itself succeeded.
+        status=0
+        python3 ${../../scripts/storage-box/health.py} /var/lib/product-backup ${lib.concatStringsSep " " names} || status=$?
+        if (( status & 1 )); then
+          ${alert ""}
+        fi
+        if (( status & 2 )); then
+          ${alert "bundles"}
+        fi
+        if (( status != 0 )); then
           exit 1
         fi
       '';

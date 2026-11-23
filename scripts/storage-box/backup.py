@@ -7,6 +7,7 @@ import re
 import stat
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -84,23 +85,34 @@ def collect_artifacts(store, digests, target):
     """Copies every referenced bundle, verified against its digest, and its build
     records into `target` in the store's layout (eve-deployments
     docs/agent-source.md, "Backup and restore"). A referenced bundle that is
-    missing or damaged fails the backup: its archive could not resume that run."""
+    missing or damaged does not fail the backup (decided 2026-11-23): the
+    archive keeps every other bundle and the snapshot, the manifest names the
+    absent digests in `agent_artifact_missing`, and the hourly health check
+    alerts on that receipt. `referenced.json` lists only the bundles the
+    archive holds, so the restore's `--expect` check stays exact."""
     if not digests:
         return {'agent_artifacts': 'none', 'agent_artifact_digests': []}
     total = 0
+    held, missing = [], []
     for digest in digests:
         name = digest[7:]
         relative = Path('objects', 'sha256', name[:2], name)
         try:
             data = read_regular(store / relative)
-        except (OSError, ValueError) as error:
-            raise ValueError(f'referenced bundle {digest} is not in the store') from error
+        except (OSError, ValueError):
+            missing.append(digest)
+            continue
         if 'sha256:' + hashlib.sha256(data).hexdigest() != digest:
-            raise ValueError(f'referenced bundle {digest} fails verification')
+            missing.append(digest)
+            continue
         (target / relative).parent.mkdir(parents=True, exist_ok=True)
         (target / relative).write_bytes(data)
         total += len(data)
-    wanted = set(digests)
+        held.append(digest)
+    if missing:
+        print('Referenced bundles missing or damaged, not in this archive: ' + ', '.join(missing),
+              file=sys.stderr)
+    wanted = set(held)
     builds = store / 'builds'
     for agent in sorted(os.listdir(builds)) if builds.is_dir() else []:
         if not AGENT.fullmatch(agent) or not (builds / agent).is_dir():
@@ -116,8 +128,9 @@ def collect_artifacts(store, digests, target):
             reported = builds / agent / (name[:-5] + '.reported')
             if reported.is_file() and not reported.is_symlink():
                 (target / 'builds' / agent / reported.name).write_bytes(read_regular(reported))
-    (target / 'referenced.json').write_text(json.dumps(digests))
-    return {'agent_artifacts': 'bundled', 'agent_artifact_digests': digests,
+    (target / 'referenced.json').write_text(json.dumps(held))
+    return {'agent_artifacts': 'incomplete' if missing else 'bundled',
+            'agent_artifact_digests': held, 'agent_artifact_missing': missing,
             'agent_artifact_bytes': total}
 
 
@@ -197,7 +210,7 @@ def main():
             tar.add(a.config, arcname='agent-infra')
             if metrics.get('agent_source') == 'bundled':
                 tar.add(work / 'agent-source.bundle', arcname='agent-source/repo.bundle')
-            if metrics.get('agent_artifacts') == 'bundled':
+            if metrics.get('agent_artifacts') in ('bundled', 'incomplete'):
                 tar.add(work / 'agent-artifacts', arcname='agent-artifacts')
             if a.capture_runtime:
                 tar.add(runtime, arcname='runtime')

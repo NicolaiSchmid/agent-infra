@@ -16,6 +16,7 @@ class FixedMessageTest(unittest.TestCase):
     def test_default_and_hosted_runner_unchanged(self):
         self.assertEqual(alert.fixed_message([]), alert.STALE)
         self.assertEqual(alert.fixed_message(['hosted-runner', 'hosted-runner-june-dev.service'])[0], 'Hosted runner failed')
+        self.assertEqual(alert.fixed_message(['bundles']), alert.BUNDLES)
 
 
 if __name__ == '__main__':

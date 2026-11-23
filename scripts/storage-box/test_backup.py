@@ -149,25 +149,45 @@ class AgentArtifactsTest(unittest.TestCase):
             self.assertEqual(backup.collect_artifacts(store, [], root / 'unused'),
                              {'agent_artifacts': 'none', 'agent_artifact_digests': []})
 
-    def test_missing_or_damaged_referenced_bundle_fails_the_backup(self):
+    def test_missing_or_damaged_referenced_bundle_is_recorded_not_fatal(self):
+        """Decided 2026-11-23: the backup finishes without the bundle and the
+        health check alerts on the receipt."""
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             store = root / 'store'
             digest = put_bundle(store, b'bundle')
+            kept = put_bundle(store, b'other bundle', commit='2' * 40)
+            absent = 'sha256:' + 'e' * 64
             (root / 'a').mkdir()
-            with self.assertRaisesRegex(ValueError, 'not in the store'):
-                backup.collect_artifacts(store, ['sha256:' + 'e' * 64], root / 'a')
+            result = backup.collect_artifacts(store, [absent, kept], root / 'a')
+            self.assertEqual(result['agent_artifacts'], 'incomplete')
+            self.assertEqual(result['agent_artifact_digests'], [kept])
+            self.assertEqual(result['agent_artifact_missing'], [absent])
+            self.assertEqual(json.loads((root / 'a' / 'referenced.json').read_text()), [kept])
             path = store / 'objects' / 'sha256' / digest[7:9] / digest[7:]
             path.write_bytes(b'torn')
             (root / 'b').mkdir()
-            with self.assertRaisesRegex(ValueError, 'fails verification'):
-                backup.collect_artifacts(store, [digest], root / 'b')
+            result = backup.collect_artifacts(store, [digest], root / 'b')
+            self.assertEqual((result['agent_artifact_digests'], result['agent_artifact_missing']), ([], [digest]))
+            self.assertFalse((root / 'b' / 'builds').exists())
             path.unlink()
             path.symlink_to(root / 'elsewhere')
             (root / 'elsewhere').write_bytes(b'bundle')
             (root / 'c').mkdir()
-            with self.assertRaisesRegex(ValueError, 'not in the store'):
-                backup.collect_artifacts(store, [digest], root / 'c')
+            result = backup.collect_artifacts(store, [digest], root / 'c')
+            self.assertEqual(result['agent_artifact_missing'], [digest])
+
+    def test_health_flags_a_receipt_without_its_bundles(self):
+        health = Path(__file__).with_name('health.py')
+        with tempfile.TemporaryDirectory() as d:
+            now = __import__('time').time()
+            (Path(d) / 'good.json').write_text(json.dumps({'completed_at': now, 'agent_artifact_missing': []}))
+            (Path(d) / 'gap.json').write_text(json.dumps({'completed_at': now, 'agent_artifact_missing': ['sha256:' + 'e' * 64]}))
+            run = lambda *names: subprocess.run([sys.executable, str(health), d, *names], capture_output=True).returncode
+            self.assertEqual(run('good'), 0)
+            self.assertEqual(run('good', 'gap'), 2)
+            self.assertEqual(run('gap', 'absent'), 3)
+            self.assertEqual(run('absent'), 1)
 
     def test_restore_drill_archive_holds_every_bundle_its_snapshot_needs(self):
         """Backup, extract, verify: the steps of the drill in
@@ -212,6 +232,48 @@ class AgentArtifactsTest(unittest.TestCase):
                     tar.add(item, arcname=item.name)
             result = subprocess.run(verify, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
+
+    def _archive(self, root, store_digests, referenced, agent_artifacts=True):
+        store = root / 'store'
+        for data in store_digests:
+            put_bundle(store, data, commit=hashlib.sha1(data).hexdigest())
+        secrets = root / 'secrets'
+        secrets.mkdir()
+        for name in ('convex-demo.env', 'convex-demo-admin-key'):
+            (secrets / name).write_text('fixture')
+        config = root / 'config'
+        (config / 'hosts' / 'black' / 'convex').mkdir(parents=True)
+        for name in ('flake.lock', 'hosts/black/convex/compose.yaml', 'hosts/black/convex/deployments.nix'):
+            (config / name).write_text('fixture')
+        export = root / 'export.zip'
+        write_export(export, runs=[{'status': 'open', 'artifact': x} for x in referenced])
+        extracted = root / 'extracted'
+        def borg(command, **kwargs):
+            shutil.copytree(kwargs['cwd'], extracted)
+            return subprocess.CompletedProcess(command, 0, stdout=b'{}')
+        args = ['backup', 'demo', str(export), '123', '--state', str(root), '--secrets', str(secrets),
+                '--config', str(config)] + (['--agent-artifacts', str(store)] if agent_artifacts else [])
+        with patch.object(sys, 'argv', args), patch.object(subprocess, 'check_output', return_value=b'{"encryption":{"mode":"repokey-blake2"}}'), patch.object(subprocess, 'run', side_effect=borg):
+            backup.main()
+        verify = [sys.executable, str(Path(__file__).with_name('verify-restore.py')), str(extracted)]
+        return subprocess.run(verify, capture_output=True, text=True), json.loads((root / 'demo.json').read_text())
+
+    def test_backup_with_a_missing_bundle_completes_and_verifies_with_a_warning(self):
+        with tempfile.TemporaryDirectory() as d:
+            present = 'sha256:' + hashlib.sha256(b'present').hexdigest()
+            absent = 'sha256:' + 'e' * 64
+            result, receipt = self._archive(Path(d), [b'present'], [present, absent])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('lacks: ' + absent, result.stdout)
+            self.assertEqual(receipt['agent_artifacts'], 'incomplete')
+            self.assertEqual(receipt['agent_artifact_missing'], [absent])
+
+    def test_archive_from_before_the_bundle_backup_is_accepted(self):
+        with tempfile.TemporaryDirectory() as d:
+            result, receipt = self._archive(Path(d), [], ['sha256:' + 'e' * 64], agent_artifacts=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('predates the bundle backup', result.stdout)
+            self.assertNotIn('agent_artifacts', receipt)
 
 
 class PublicKeyTest(unittest.TestCase):
