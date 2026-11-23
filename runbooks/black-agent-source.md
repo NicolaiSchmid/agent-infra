@@ -244,10 +244,10 @@ runuser -u agent-source -- \
   --expect "$PWD/agent-artifacts/referenced.json"
 ```
 
-`restore` exists from eve-deployments #123's merge commit on. While
-`hosts/black/eve-deployments.nix` pins an older revision, run it from a
-checkout of a revision that has it (`npm ci --ignore-scripts`, Node 24): it
-builds nothing, so the toolchain identity does not matter.
+`restore` exists from eve-deployments #123's merge commit on, the pinned
+revision. On a recovery host without the toolchain, run it from a checkout of
+that revision (`npm ci --ignore-scripts`, Node 24): it builds nothing, so the
+toolchain identity does not matter.
 
 The next start sets the hook and the push settings again. `restore` refuses
 the whole set when one object fails verification or a digest from
@@ -289,14 +289,17 @@ first drill on real archives has not run yet.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #117's merge commit (`01189cc`,
-2026-11-22), whose CI run is green, gVisor and native-runner jobs included: E6 (PR #109),
-owner-writable toolchain copies in the builder (PR #111), the runner's
-proxy-404 retry (PR #112), failed builds that stay failed with an explicit
-retry and main-only builds (PR #113), a guest crash that ends its delivery
-instead of the runner (PR #115, which June's delivery-failure count from June
-PR #1455 reads), a 256 MiB default guest (PR #116), and guest CPU, memory
-and network metering for June's usage ledger (PR #117).
+and the toolchain. It pins eve-deployments PR #123's merge commit (`08d282c`,
+2026-11-23): artifacts flushed before they are published or reported (PR
+#122) and `restore` of backed-up bundles by digest (PR #123), on top of
+runner slots (PR #120), runs that complete after their turn (PR #119) and
+everything before: E6 (PR #109), owner-writable toolchain copies in the
+builder (PR #111), the runner's proxy-404 retry (PR #112), failed builds that
+stay failed with an explicit retry and main-only builds (PR #113), a guest
+crash that ends its delivery instead of the runner (PR #115, which June's
+delivery-failure count from June PR #1455 reads), a 256 MiB default guest
+(PR #116), and guest CPU, memory and network metering for June's usage
+ledger (PR #117).
 To move it, change all of these in one agent-infra PR:
 
 1. `revision`: the eve-deployments commit on `main`.
