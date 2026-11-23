@@ -17,13 +17,18 @@ RETENTION = ('Product backup retention failed',
 HOSTED_RUNNER = ('Hosted runner failed',
                  'Black: {unit} is failed and no longer polls June. Runbook: agent-infra runbooks/black-hosted-runner.md (journal, then reset-failed).')
 
+EXECUTOR_DB = ('Executor database failed',
+               'Black: {unit} failed. June integrations may be down. Runbook: agent-infra runbooks/black-executor-db.md (health, then journal).')
+
 
 def fixed_message(args):
-    """Only fixed texts; a hosted runner unit name is the one accepted value."""
+    """Only fixed texts; a hosted runner or executor database unit name is the one accepted value."""
     if args == ['retention']:
         return RETENTION
     if len(args) == 2 and args[0] == 'hosted-runner' and re.fullmatch(r'hosted-runner-[a-z0-9-]{1,32}\.service', args[1]):
         return HOSTED_RUNNER[0], HOSTED_RUNNER[1].format(unit=args[1])
+    if len(args) == 2 and args[0] == 'executor-db' and re.fullmatch(r'executor-db-[a-z0-9-]{1,32}-(health|backup)\.service', args[1]):
+        return EXECUTOR_DB[0], EXECUTOR_DB[1].format(unit=args[1])
     if args:
         raise SystemExit('Unknown alert')
     return STALE
