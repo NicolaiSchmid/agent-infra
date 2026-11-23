@@ -241,3 +241,52 @@ inside the 55 s program limit.
 - Whether the fence-2 redelivery got `outcome: replayed`: the ledger row
   count and attempt show the call did not run again, but the guest's reply
   was not decoded.
+
+## Black back on merged main (2026-11-23, 12:32–12:45 CET)
+
+After every pull request of the gate merged, black left the integration
+branch for agent-infra main `7949dbd` (the merge of #102), which includes
+#106 and #107. Pin: eve-deployments `8482ee3` (merge of eve-deployments #120,
+with #119 and #118), CI run 45163113133. Its tree and its `native-runner`
+bundle (`dc60978a…`) are identical to the integration build `0789c89` that
+the journeys above ran on.
+
+- Before the switch: the toolchain source `eve-deployments-8482ee3556ab` was
+  added to black's store and the bundle provisioned under
+  `/var/lib/hosted-runner/releases/8482ee3…/` (SHA-256 checked); the
+  toolchain was built and rooted from `7949dbd`; `nixos-rebuild build`
+  showed `docker.service` unchanged (no `/etc/docker/daemon.json` in either
+  generation); `dry-activate` listed only the runner and agent-source units,
+  `systemd-tmpfiles-resetup`, a polkit restart and a dbus-broker reload. The
+  previous generation is saved in
+  `/root/hosted-runner/pre-main-2026-11-23-system`.
+- The switch exited 4 only because `hosted-runner-june-dev` fails (below).
+  Black runs `af16l42…-nixos-system-black`.
+- After the switch: `hosted-runner-june-prod` (slots 2) and both
+  agent-source units active; both runner units execute
+  `releases/8482ee3…/runner.mjs`; the toolchain root is
+  `agent-source-toolchain-8482ee3556ab`. dockerd (up since 2026-11-19),
+  `convex-june-prod-backend-1` (started 01:19:04Z) and
+  `executor-db-june-prod-sqld-1` (01:20:41Z) were not restarted; the same 21
+  containers as before, `executor-db-june-prod` still on its network with
+  June prod's backend; no gVisor guests. The integration bundle directory
+  `releases/0789c89…` was removed.
+- No runner or builder unit runs unmerged code, and the pin equals merged
+  main.
+- The two open runs from 2026-11-21 under old releases, `hd81nqxy…` and
+  `hd8emdxk…`, were cancelled with `operator cancel --confirm=cancel-run`.
+  The MODUS org then has no open run: 55 runs, 51 cancelled, 3 completed,
+  1 failed, matching the baseline count. The admin key copy on Atlas was
+  deleted.
+
+### Known after the switch
+
+- `hosted-runner-june-dev` keeps failing at start: it falls back to one
+  delivery (June dev has no `poll`) and stops because June dev's backend
+  answers its first queue call with a server error. June dev runs pre-J9
+  hosted code and cannot take a deploy (its Convex backend is OOM-killed at
+  768 MiB), so this is June dev's state, not a runner regression shown here.
+  It needs June dev's memory raised and a deploy, or the unit disabled.
+- `agent-source-june-dev-gc` fails daily with 404 for the same reason.
+- Disk: 20 GiB free (98 % used), below the 25 GiB the first night
+  deployment asked for; this switch pulled no image.
