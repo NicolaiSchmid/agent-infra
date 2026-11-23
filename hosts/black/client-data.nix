@@ -29,6 +29,7 @@ in {
     (import ./traefik.nix {inherit stateDir traefikDynamicDir;})
     (import ./garage.nix {inherit stateDir;})
     (import ./routes.nix {inherit stateDir traefikDynamicDir;})
+    (import ./executor-db.nix {inherit stateDir;})
   ];
 
   virtualisation.docker = {
