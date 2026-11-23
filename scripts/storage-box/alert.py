@@ -14,6 +14,9 @@ STALE = ('Product backup overdue',
 RETENTION = ('Product backup retention failed',
              'Forge product backup retention (prune/compact of the Storage Box repository) failed. Check /var/log/product-backup-retention.log on Forge before any manual prune or compact.')
 
+BUNDLES = ('Product backup lacks hosted bundles',
+           'Black product backups: the latest archive lacks hosted-workflow bundles its snapshot references, so those runs cannot resume from it. Check the backup journal and runbooks/black-agent-source.md.')
+
 HOSTED_RUNNER = ('Hosted runner failed',
                  'Black: {unit} is failed and no longer polls June. Runbook: agent-infra runbooks/black-hosted-runner.md (journal, then reset-failed).')
 
@@ -25,6 +28,8 @@ def fixed_message(args):
     """Only fixed texts; a hosted runner or executor database unit name is the one accepted value."""
     if args == ['retention']:
         return RETENTION
+    if args == ['bundles']:
+        return BUNDLES
     if len(args) == 2 and args[0] == 'hosted-runner' and re.fullmatch(r'hosted-runner-[a-z0-9-]{1,32}\.service', args[1]):
         return HOSTED_RUNNER[0], HOSTED_RUNNER[1].format(unit=args[1])
     if len(args) == 2 and args[0] == 'executor-db' and re.fullmatch(r'executor-db-[a-z0-9-]{1,32}-(health|backup)\.service', args[1]):

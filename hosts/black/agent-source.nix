@@ -271,8 +271,12 @@ in {
   networking.firewall.tailnetRefusedTCPPorts = lib.mapAttrsToList (_: instance: toString instance.port) instances;
 
   # The source repository rides along with its deployment's nightly product
-  # backup. The artifact store does not: it is rebuilt from source.
+  # backup, and so does every bundle that backup's Convex snapshot references
+  # (active releases, open runs): a commit whose toolchain is gone cannot be
+  # rebuilt, so an open run resumes only on its own backed-up bundle
+  # (runbooks/black-agent-source.md, "Backup and restore").
   services.productBackup.agentSourceRepositories = lib.mapAttrs (name: _: repository name) enabled;
+  services.productBackup.agentArtifactStores = lib.mapAttrs (name: _: store name) enabled;
 
   systemd.services = lib.concatMapAttrs services instances;
   systemd.timers = lib.concatMapAttrs timers enabled;
