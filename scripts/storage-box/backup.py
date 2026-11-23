@@ -120,8 +120,14 @@ def collect_artifacts(store, digests, target):
         for name in sorted(os.listdir(builds / agent)):
             if not COMMIT_RECORD.fullmatch(name):
                 continue
-            text = read_regular(builds / agent / name)
-            if json.loads(text).get('digest') not in wanted:
+            # A damaged record, most likely of an unreferenced build, is
+            # skipped: the snapshot and the verified bundles still go off-host.
+            try:
+                text = read_regular(builds / agent / name)
+                if json.loads(text).get('digest') not in wanted:
+                    continue
+            except (OSError, ValueError, AttributeError):
+                print(f'Skipped unreadable build record builds/{agent}/{name}', file=sys.stderr)
                 continue
             (target / 'builds' / agent).mkdir(parents=True, exist_ok=True)
             (target / 'builds' / agent / name).write_bytes(text)

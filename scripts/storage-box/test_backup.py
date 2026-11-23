@@ -146,6 +146,13 @@ class AgentArtifactsTest(unittest.TestCase):
             self.assertEqual(files, [f'builds/hello/{"1" * 40}.json', f'builds/hello/{"1" * 40}.reported',
                                      f'objects/sha256/{kept[7:9]}/{kept[7:]}', 'referenced.json'])
             self.assertEqual(json.loads((target / 'referenced.json').read_text()), [kept])
+            # An unrelated damaged record does not stop the collection.
+            (store / 'builds' / 'hello' / ('4' * 40 + '.json')).write_text('{torn')
+            (store / 'builds' / 'hello' / ('5' * 40 + '.json')).write_text('[]')
+            again = root / 'again'
+            again.mkdir()
+            self.assertEqual(backup.collect_artifacts(store, [kept], again)['agent_artifact_digests'], [kept])
+            self.assertTrue((again / 'builds' / 'hello' / ('1' * 40 + '.json')).is_file())
             self.assertEqual(backup.collect_artifacts(store, [], root / 'unused'),
                              {'agent_artifacts': 'none', 'agent_artifact_digests': []})
 
