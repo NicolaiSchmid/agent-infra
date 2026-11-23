@@ -5,18 +5,19 @@
 # pins bytes the operator provisions on black. Bump all of them together:
 # runbooks/black-agent-source.md, "Bump the eve-deployments pin".
 {
-  # eve-deployments PR #123 merge commit on main (2026-11-23): artifacts are
-  # flushed before they are published or reported (PR #122) and backed-up
-  # bundles restore by digest (PR #123). Includes PR #120 (runner slots) and
-  # everything before it.
-  revision = "08d282ca63d5c2cdfcb9a2359c30e5ada5664ffa";
+  # eve-deployments PR #124 merge commit on main (2026-11-23): restore reads
+  # records in pages of 16 and only unconsumed inbox rows, and the runner
+  # answers a page above 4 MiB with 413 (phase 1 of June's replay compaction
+  # plan). Includes PR #122 and #123 (flushed publication, restore by digest),
+  # PR #120 (runner slots) and everything before it.
+  revision = "8e233e67675f5def76b3c19873a1b5e568d79aa1";
   # NAR hash of `git archive <revision>` unpacked (`nix hash path`).
-  sourceHash = "sha256-fZ/FfwksfvtMGG60Ja4rkezs7SheeXELPlU4c9bQCjk=";
+  sourceHash = "sha256-ErD/pyiRlHctOevULAgCRdBIhpuiZ2YaCLsiit1cM9g=";
   # fetchNpmDeps of that tree's package-lock.json (`prefetch-npm-deps`).
   npmDepsHash = "sha256-I7qC4awVQ9naCwXzqFb2TEqjFMqo280DcrMpSgm/VRg=";
   # The CI run's `native-runner` artifact for the same revision.
   runner = {
-    run = "45189938676";
-    sha256 = "9e71111e5d6dc65b304fb3054cee30f0d5fa51404b16f57e30df827488990639";
+    run = "45199506655";
+    sha256 = "2d5c6d820da9a246a5180fe3a2f7a91b3c2b31e97f922a1c63dca006b4ba7e98";
   };
 }
