@@ -27,9 +27,9 @@ key; this does not change the encryption of historical bootstrap archives.
 Recurring encrypted backups are active. All four fresh remote archives contain only
 `payload.tar.age`, and a full remote Borg data check passed. The hourly freshness
 check passed after those writes. See [activation evidence](storage-box-acceptance-2026-11-11.md).
-Independent Mac decryption/key escrow remains unverified. Pushover delivery remains unavailable
-without an application token, and no external dead-man monitor has been configured.
-The hourly host check can report stale archives locally but is not push delivery.
+Independent Mac decryption/key escrow remains unverified, and no external dead-man
+monitor has been configured. The hourly host check reports stale archives to June
+(see Operations and capacity); it cannot report Black itself being down.
 Do not describe those remaining controls as complete.
 
 ## Provisioning status (2026-11-04)
@@ -93,15 +93,11 @@ Use Borg 1.x with explicit `--remote-path=borg-1.4`, SSH port 23.
    never compact until unexpected deletions have been investigated.
 5. Use private secret input on a trusted machine and SOPS-edit
    `secrets/product-backup.yaml` (never paste secrets into chat or command arguments).
-   The encrypted writer key and passphrase are already present. For Pushover,
-   add `product-backup/alert-config` as a JSON string with
-   `{"pushover":{"token":"APP_TOKEN","user":"USER_KEY"}}`, then enable
-   `services.productBackup.pushover.enable`. Pushover requires both credentials;
-   the operator supplied a user key but no application token and explicitly
-   requested no new app. Push delivery remains disabled until an existing token
-   is supplied. Email delivery was declined. Never treat journal checks as push
-   delivery. Black is an encrypted-file recipient. No plaintext secrets belong
-   in Nix/store.
+   The encrypted writer key and passphrase are already present. Black's alerts
+   need no secret here: they go to June with the june-prod hosted runner key
+   (see Operations and capacity). A `product-backup/alert-config` entry left in
+   the file is no longer read by Black. Black is an encrypted-file recipient.
+   No plaintext secrets belong in Nix/store.
 6. Set `services.productBackup.enable = true`, `repository` (SSH URL with
    `:23/./`) and `knownHosts` (verified `[host]:23` key). Evaluate and deploy
    through the normal host change procedure. Run each existing
@@ -134,8 +130,16 @@ it independently is still required before claiming off-host key escrow.
 ## Operations and capacity
 
 Hourly health checks fail for each missing or >36h-old successful off-host archive,
-including first activation, and send Pushover alerts only when configured. Test missing/stale receipts and delivery failure; systemd
-failure/journal must also be watched by the operator. An external dead-man monitor
+including first activation. Every run reports both checks to June's prod deployment
+through `scripts/june-alert.py` (`hostedRuns/alerts:report`, authenticated with
+`/root/hosted-runner/june-prod-runner.key`): `product-backup` for a missing or stale
+archive and `product-backup-bundles` for absent hosted bundles, each `firing` or
+`resolved`. June dedupes the hourly repeats, writes the text and alerts its staff.
+A failed report also fails the unit. June's side must be deployed first: until
+`hostedRuns/alerts:report` exists every run fails on delivery. Test by hand with
+`systemctl start product-backup-health` and read `journalctl -u product-backup-health -n 5`
+(one `reported … to june-prod` line per check; a healthy run resolves both).
+Systemd failure/journal must also be watched by the operator. An external dead-man monitor
 is required to detect Black being down (a host cannot alert when powered off).
 Do not mark activation complete until that monitor observes daily completion.
 
@@ -212,8 +216,10 @@ Each run (`scripts/storage-box/retention.py`) fails closed:
 
 Failure exits non-zero and logs. Pushover delivery is wired
 (`services.productBackupRetention.pushover.enable`, secret
-`product-backup-retention/alert-config`, same JSON as Black's) but stays off for
-the same reason as on Black: there is no application token. Until a token exists,
+`product-backup-retention/alert-config`, JSON
+`{"pushover":{"token":"APP_TOKEN","user":"USER_KEY"}}`, sent by
+`scripts/storage-box/alert.py`) but stays off: there is no application token.
+Black moved to June alerts on 2026-11-24; whether Forge follows is open. Until then,
 or an external monitor reads the receipt, check the log after deployment and weekly.
 Missed runs (Forge at the FileVault screen after a reboot) only delay pruning and
 are not reported.
