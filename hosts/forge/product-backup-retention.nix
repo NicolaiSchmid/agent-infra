@@ -41,13 +41,10 @@
       python3 ${../../scripts/storage-box/retention.py} --state ${stateDir} \
         --keep-days ${toString cfg.keepDays} --current ${lib.concatStringsSep " " current} \
         ${lib.optionalString cfg.dryRun "--dry-run"} || status=$?
+      # A failure stays in the log; alerts never go through Pushover
+      # (runbooks/storage-box-product-recovery.md, retention).
       if [ "$status" -ne 0 ]; then
         echo "Retention failed with status $status" >&2
-        ${
-        if cfg.pushover.enable
-        then "python3 ${../../scripts/storage-box/alert.py} ${secret "alert-config"} retention || echo 'Retention alert delivery failed' >&2"
-        else "echo 'Push delivery unavailable: an existing Pushover application token is required' >&2"
-      }
       fi
       exit "$status"
     '';
@@ -65,12 +62,11 @@ in {
       default = 30;
       description = "Archives older than this many days are deleted (AVV Anlage 2: 30 days)";
     };
-    pushover.enable = lib.mkEnableOption "Pushover alerts on retention failure (requires product-backup-retention/alert-config)";
   };
 
   config = lib.mkIf cfg.enable {
     sops.age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"];
-    sops.secrets = lib.genAttrs (map (n: "product-backup-retention/${n}") (["ssh-key" "passphrase"] ++ lib.optional cfg.pushover.enable "alert-config")) (_: {
+    sops.secrets = lib.genAttrs (map (n: "product-backup-retention/${n}") ["ssh-key" "passphrase"]) (_: {
       mode = "0400";
       sopsFile = ../../secrets/product-backup-retention.yaml;
     });

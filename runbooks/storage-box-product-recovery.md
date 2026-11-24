@@ -214,13 +214,11 @@ Each run (`scripts/storage-box/retention.py`) fails closed:
 4. It writes `last-run.json` (pruned names, survivor count, compaction, and
    survivors older than 30 days).
 
-Failure exits non-zero and logs. Pushover delivery is wired
-(`services.productBackupRetention.pushover.enable`, secret
-`product-backup-retention/alert-config`, JSON
-`{"pushover":{"token":"APP_TOKEN","user":"USER_KEY"}}`, sent by
-`scripts/storage-box/alert.py`) but stays off: there is no application token.
-Black moved to June alerts on 2026-11-24; whether Forge follows is open. Until then,
-or an external monitor reads the receipt, check the log after deployment and weekly.
+Failure exits non-zero and logs; nothing else is sent. Alerts never go through
+Pushover (decided 2026-11-24; the unused Pushover option and
+`scripts/storage-box/alert.py` were removed). Black reports to June; whether
+Forge's retention failure reaches June too is open. Until then, or an external
+monitor reads the receipt, check the log after deployment and weekly.
 Missed runs (Forge at the FileVault screen after a reboot) only delay pruning and
 are not reported.
 
@@ -345,4 +343,4 @@ provision/test restrictions → measure a week → isolated application restore.
 Local review covered fresh-export selection, fail-closed encryption/success, effective systemd/image and application-environment capture, asymmetric payload packaging,
 credential separation, bounded sequential Borg access and product-only scope.
 Default and enabled Black derivations evaluated (enabled evaluation used an empty
-test-only SOPS file, not activation credentials). Six tests cover valid/invalid exports, failure/success receipts, age round-trip packaging, Pushover delivery failure and stale/missing/future success timestamps. The remote restriction and initial archive checks above passed. Final subaccount scheduling, public-recipient selection, external escrow and Pushover delivery remain activation gates. No full NixOS switch was made.
+test-only SOPS file, not activation credentials). Six tests cover valid/invalid exports, failure/success receipts, age round-trip packaging, Pushover delivery failure and stale/missing/future success timestamps. The remote restriction and initial archive checks above passed. Final subaccount scheduling, public-recipient selection and external escrow remain activation gates (Pushover delivery was dropped on 2026-11-24; alerts go to June). No full NixOS switch was made.

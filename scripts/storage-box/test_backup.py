@@ -324,32 +324,6 @@ class PublicKeyTest(unittest.TestCase):
                 self.assertEqual(set(tar.getnames()), {'export.zip', 'recovery.tar', 'manifest.json'})
                 self.assertEqual(tar.extractfile('export.zip').read(), export.read_bytes())
 
-class AlertTest(unittest.TestCase):
-    def test_pushover_delivery_and_rejection(self):
-        spec = importlib.util.spec_from_file_location('alert', Path(__file__).with_name('alert.py'))
-        alert = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(alert)
-        from unittest.mock import MagicMock
-        response = MagicMock()
-        response.__enter__.return_value = io.BytesIO(b'{"status":1}')
-        config = {'pushover': {'token': 'test-app-token', 'user': 'test-user-key'}}
-        with patch.object(alert.urllib.request, 'urlopen', return_value=response) as send:
-            alert.send(config)
-            self.assertEqual(send.call_args.args[0], 'https://api.pushover.net/1/messages.json')
-        with patch.object(alert.urllib.request, 'urlopen', side_effect=OSError('private value')):
-            with self.assertRaisesRegex(RuntimeError, '^Backup alert delivery failed: Pushover$'):
-                alert.send(config)
-
-    def test_fixed_message_is_retention_only(self):
-        spec = importlib.util.spec_from_file_location('alert', Path(__file__).with_name('alert.py'))
-        alert = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(alert)
-        self.assertEqual(alert.fixed_message(['retention']), alert.RETENTION)
-        for args in ([], ['bundles'], ['hosted-runner', 'hosted-runner-june-prod.service'],
-                     ['executor-db', 'executor-db-june-prod-health.service'], ['other']):
-            with self.assertRaises(SystemExit):
-                alert.fixed_message(args)
-
 class HealthTest(unittest.TestCase):
     def test_missing_fresh_stale_and_future_receipts(self):
         with tempfile.TemporaryDirectory() as d:
