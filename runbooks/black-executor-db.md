@@ -115,6 +115,75 @@ cd / && rm -r /root/executor-db-restore
 
 The key is unchanged, so Convex's token keeps working. Then check the row
 counts against the dump: count the `INSERT INTO <table>` lines per table.
+To test a backup without replacing the live database, run the drill below.
+
+## Restore drill (live server untouched)
+
+Proves that the newest backup restores, without touching the live
+instance: the dump goes into a throwaway sqld with its own name
+(`executor-db-drill`), loopback port (`13289`), Docker volume and Ed25519
+key, so a drill token never works against a live server. It runs outside
+`executordb.slice`, whose 448M are sized for the two live instances. Run it
+after a change to the backup or restore path, and at least once a quarter.
+
+```bash
+ssh root@black
+name=executor-db-drill port=13289 dir=/root/executor-db-drill
+image=$(grep -o 'ghcr.io/tursodatabase/libsql-server:[^ ]*' \
+  "$(systemctl cat executor-db-june-prod | grep -o '/nix/store/[^ ]*compose.yaml' | head -n 1)")
+umask 077; mkdir -p "$dir" && cd "$dir"
+PATH=$(nix build --no-link --print-out-paths 'nixpkgs#rclone^out')/bin:$(nix build --no-link --print-out-paths 'nixpkgs#openssl^bin')/bin:$PATH
+openssl genpkey -algorithm ed25519 -out jwt.key
+openssl pkey -in jwt.key -pubout -out jwt.pub && chmod 0644 jwt.pub && chmod 0755 "$dir"
+drill_token() {  # rw, 15 minutes, signed with the drill key
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+  local h p; h=$(printf '{"alg":"EdDSA","typ":"JWT"}' | b64url)
+  p=$(printf '{"a":"rw","exp":%s}' $(( $(date +%s) + 900 )) | b64url)
+  printf '%s.%s' "$h" "$p" > msg
+  printf '%s.%s.%s' "$h" "$p" "$(openssl pkeyutl -sign -rawin -inkey jwt.key -in msg | b64url)"
+}
+set -a; . /var/lib/client-data/secrets/executor-db-june-prod-backup.env; set +a
+export RCLONE_CONFIG_GARAGE_TYPE=s3 RCLONE_CONFIG_GARAGE_PROVIDER=Other \
+  RCLONE_CONFIG_GARAGE_ENDPOINT=http://127.0.0.1:3900 RCLONE_CONFIG_GARAGE_REGION=garage \
+  RCLONE_CONFIG_GARAGE_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" RCLONE_CONFIG_GARAGE_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+latest=$(rclone lsf garage:executor-db-june-prod-backups/daily | sort | tail -n 1); echo "$latest"
+rclone copyto "garage:executor-db-june-prod-backups/daily/$latest" dump.sql.gz && gunzip dump.sql.gz
+docker run -d --name "$name" --memory 128m --memory-swap 128m --cpus 0.5 --pids-limit 128 \
+  -e SQLD_DB_PATH=/var/lib/sqld/data -e SQLD_HTTP_LISTEN_ADDR=0.0.0.0:8080 \
+  -e SQLD_AUTH_JWT_KEY_FILE=/run/sqld/jwt.pub -v "$name":/var/lib/sqld \
+  -v "$dir/jwt.pub":/run/sqld/jwt.pub:ro -p 127.0.0.1:$port:8080 "$image"
+until curl -fsS "http://127.0.0.1:$port/health" >/dev/null 2>&1; do sleep 1; done
+jq -Rs '{requests: [{type: "sequence", sql: .}]}' dump.sql > request.json
+curl -fsS -H "Authorization: Bearer $(drill_token)" -H 'content-type: application/json' \
+  --data-binary @request.json "http://127.0.0.1:$port/v2/pipeline" | jq -c '.results[0].type'   # "ok"
+q() {  # q <port> <token> <sql>
+  jq -n --arg s "$3" '{requests: [{type: "execute", stmt: {sql: $s}}]}' |
+    curl -fsS -H "Authorization: Bearer $2" -H 'content-type: application/json' \
+      --data-binary @- "http://127.0.0.1:$1/v2/pipeline" | jq -c '.results[0].response.result.rows // .results[0]'
+}
+live=$(executor-db-token june-prod ro 600)
+tables=$(q 13280 "$live" "select name from sqlite_master where type = 'table' and name not like 'sqlite\_%' escape '\' and name not like '\_%' escape '\' order by name" | jq -r '.[][0].value')
+counts=$(for t in $tables; do printf "select '%s', count(*) from \"%s\" union all " "$t" "$t"; done | sed 's/ union all $//')
+for t in $tables; do printf '%s %s\n' "$t" "$(grep -c "^INSERT INTO \"\?$t\"\? " dump.sql || true)"; done > dump.txt
+q "$port" "$(drill_token)" "$counts" | jq -r '.[] | "\(.[0].value) \(.[1].value)"' > drill.txt
+q 13280 "$live" "$counts" | jq -r '.[] | "\(.[0].value) \(.[1].value)"' > live.txt
+echo "table dump drill live"; join dump.txt drill.txt | join - live.txt
+diff dump.txt drill.txt && echo "drill matches the dump"
+q "$port" "$(drill_token)" "pragma integrity_check"   # [[{"type":"text","value":"ok"}]]
+docker rm -f "$name" && docker volume rm "$name" && cd / && rm -r "$dir"
+```
+
+Pass: the restore answers `"ok"`, `drill` equals `dump` on every table, and
+`integrity_check` is `ok`. `live` may differ from both: the backup is up to
+a day old and tool catalogues are rewritten on refresh. A difference only in
+`tool`, explained by `select count(*) from tool where created_at > <backup
+time in epoch seconds>` on the live server, is expected.
+
+Drill log:
+
+| Date (UTC) | Backup | Result |
+|---|---|---|
+| 2026-11-24 | `2026-11-24T021606Z.sql.gz` | Restore ok, integrity ok, every table equal to the dump. Live had `tool` 937 against 935, from 724 rows rewritten after the backup on three connections; all other tables equal |
 
 ## Moving hosts
 
