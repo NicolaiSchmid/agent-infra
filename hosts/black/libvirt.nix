@@ -8,11 +8,14 @@
   atlasCurrentMemoryMiB = 43 * 1024;
   atlasVCpus = 12;
   atlasRootSize = "120G";
-  # 750G, not 1000G: black has 953G of btrfs RAID1, and a guest disk larger
-  # than the host can hold meant black filled up first and the VM paused on an
-  # I/O error (2026-10-01..25). With both images fully allocated, a full disk
-  # shows up inside atlas as ENOSPC and the VM keeps running.
-  atlasStateSize = "750G";
+  # 550G: black has 953G of btrfs RAID1. A guest disk larger than the host
+  # can hold meant black filled up first and the VM paused on an I/O error
+  # (2026-10-01..25); 1000G went to 750G then. At 750G + 120G the images still
+  # left black too little for June production, Garage and E2B once extent slack
+  # grew, and black filled up three times on 2026-11-17/18. A full disk has to
+  # show up inside atlas as ENOSPC, never on black. An existing image keeps its
+  # size; shrinking one is runbooks/atlas-state-shrink.md.
+  atlasStateSize = "550G";
   imageDir = "/var/lib/libvirt/images";
   atlasRoot = "${imageDir}/atlas-root.raw";
   atlasState = "${imageDir}/atlas-state.raw";

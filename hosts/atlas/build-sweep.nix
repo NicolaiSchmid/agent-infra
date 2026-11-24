@@ -15,9 +15,10 @@ in {
       Type = "oneshot";
       ExecStart = "${sweep}/bin/atlas-build-sweep";
       StateDirectory = "atlas-build-sweep";
-      # Whole-worktree removal (steps 3-5 of build-sweep.sh) only logs until
-      # the first runs were reviewed; drop this to make it act.
-      Environment = ["PURGE_DRY_RUN=1"];
+      # Whole-worktree removal (steps 3-5 of build-sweep.sh) acts since
+      # 2026-11-18. It logged only from 2026-10-25 on, and 1,349 stale
+      # worktrees and scratch checkouts piled up on the state disk meanwhile.
+      # Set Environment = ["PURGE_DRY_RUN=1"] to make it log only again.
       # Runs as root (it reads every process's cwd and environment) but can
       # only write where build output lives.
       ProtectSystem = "strict";

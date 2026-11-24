@@ -32,8 +32,9 @@ Two things keep atlas usable while agents build on it
   ones agents create in workspace clones, after 7 days without writes
   (`PURGE_DAYS`) when they have no modified or untracked files and no commit
   missing from every remote, and build output in workspace clones idle as
-  long. Logs `purge worktree <path>` only while the unit sets
-  `PURGE_DRY_RUN=1`.
+  long. Logs `purge worktree <path>` for each removal. It ran as a dry run
+  from 2026-10-25 to 2026-11-18; setting `PURGE_DRY_RUN=1` on the unit makes
+  it log only again.
 
 ## Check
 
