@@ -43,8 +43,8 @@ SIGTERM and waits for confirmed cleanup; stop has no timeout. A stuck cleanup
 requires operator inspection, not automatic deletion of evidence. Ten failed
 starts in ten minutes trip systemd's start limit; after resolving the cause,
 use `systemctl reset-failed hosted-runner-june-dev` and start it again.
-A unit that ends up failed starts `hosted-runner-failed@<unit>.service`
-(`OnFailure=`; `RestartMode=direct` keeps automatic restarts from firing it). It writes one critical journal
+A unit that ends up failed starts `hosted-runner-failed@<unit>.service`, where
+`<unit>` is the full unit name, `.service` included (`OnFailure=`; `RestartMode=direct` keeps automatic restarts from firing it). It writes one critical journal
 line and reports `runner-unit firing` with the unit name to the deployment the
 runner polls (`hosted-runner-june-dev.service` → june-dev), through
 `scripts/june-alert.py` and June's `hostedRuns/alerts:report`, authenticated
@@ -58,12 +58,16 @@ alert unit ends failed and only the journal line remains. Find failures with
 Test the path by hand (sends one real alert to june-dev staff):
 
 ```sh
-ssh root@black systemctl start hosted-runner-failed@hosted-runner-june-dev.service
-ssh root@black journalctl -u hosted-runner-failed@hosted-runner-june-dev.service -n 5
+ssh root@black systemctl start hosted-runner-failed@hosted-runner-june-dev.service.service
+ssh root@black journalctl -u hosted-runner-failed@hosted-runner-june-dev.service.service -n 5
 ```
 
-The last line reads `reported runner-unit firing to june-dev`; a failed unit
-names only the error class, never the key or the request.
+The instance is the full unit name, as `OnFailure=` passes it (`%n`), so
+`.service` appears twice; without it the reporter exits `Unknown unit` and
+never calls June. The last line reads `reported runner-unit firing to
+june-dev`; a failed unit names only the error class, never the key or the
+request. The deployment must run June code with `hostedRuns/alerts`, or it
+rejects the report.
 
 The runner has 512 MiB RAM, no swap, one CPU and 64 tasks. Guests retain the
 upstream per-release limits, `--runtime runsc`, no network, no capabilities,
