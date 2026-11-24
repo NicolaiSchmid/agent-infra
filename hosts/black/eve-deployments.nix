@@ -5,20 +5,20 @@
 # pins bytes the operator provisions on black. Bump all of them together:
 # runbooks/black-agent-source.md, "Bump the eve-deployments pin".
 {
-  # eve-deployments PR #125 merge commit on main (2026-11-23): hosted.json
-  # manifests make protocol 3 builds reported with their manifest, and the
-  # World's /tools export offers juneTools() with the describe and call
-  # primitives (June's B1, june #1500). Includes PR #124 (batched replay
-  # reads), PR #122 and #123 (flushed publication, restore by digest), PR #120
-  # (runner slots) and everything before it.
-  revision = "9038653333be8501d9b15be9c1cd544c991d56b2";
+  # eve-deployments PR #127 merge commit on main (2026-11-25):
+  # callJuneRequest, a typed June call under the workflow's own key. Includes
+  # PR #128 (a failed Eve turn commits `fail`, so June ends the run failed and
+  # alerts; June #1531), PR #125 (hosted.json manifests, juneTools()), PR #124
+  # (batched replay reads), PR #122 and #123 (flushed publication, restore by
+  # digest), PR #120 (runner slots) and everything before it.
+  revision = "7650e12e11f02cb8d41cf426a702583f36f55ffb";
   # NAR hash of `git archive <revision>` unpacked (`nix hash path`).
-  sourceHash = "sha256-KI2Iu0fvyxz3WLY7d08sgtBe6PlZ1e5L6yAGo+vISxM=";
+  sourceHash = "sha256-ldFgJnF7WxrX+OqHE05qhwMHgQlHlwBkEa0irSzD/jc=";
   # fetchNpmDeps of that tree's package-lock.json (`prefetch-npm-deps`).
   npmDepsHash = "sha256-I7qC4awVQ9naCwXzqFb2TEqjFMqo280DcrMpSgm/VRg=";
   # The CI run's `native-runner` artifact for the same revision.
   runner = {
-    run = "45202992740";
-    sha256 = "c62586e9bb09f90a67382f97cc6b133447ddce295c531e1c89208df5af47cd7e";
+    run = "45512293443";
+    sha256 = "f621fe101049992dbe9e751dcbbf22464426092797e7fca892c2f7f909a83d9c";
   };
 }
