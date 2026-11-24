@@ -1,45 +1,27 @@
-"""Deliver a fixed infrastructure alert via Pushover.
+"""Deliver Forge's fixed retention alert via Pushover.
 Credentials are read from a root-only SOPS JSON file, never command arguments.
+Forge only (hosts/forge/product-backup-retention.nix); black reports to June
+through scripts/june-alert.py.
 """
 import json
 from pathlib import Path
-import re
 import sys
 import urllib.parse
 import urllib.request
 
 
-STALE = ('Product backup overdue',
-         'Black product backups: one or more off-host Convex backups are missing or older than 36 hours. Check product-backup-health.service and recovery receipts.')
 RETENTION = ('Product backup retention failed',
              'Forge product backup retention (prune/compact of the Storage Box repository) failed. Check /var/log/product-backup-retention.log on Forge before any manual prune or compact.')
 
-BUNDLES = ('Product backup lacks hosted bundles',
-           'Black product backups: the latest archive lacks hosted-workflow bundles its snapshot references, so those runs cannot resume from it. Check the backup journal and runbooks/black-agent-source.md.')
-
-HOSTED_RUNNER = ('Hosted runner failed',
-                 'Black: {unit} is failed and no longer polls June. Runbook: agent-infra runbooks/black-hosted-runner.md (journal, then reset-failed).')
-
-EXECUTOR_DB = ('Executor database failed',
-               'Black: {unit} failed. June integrations may be down. Runbook: agent-infra runbooks/black-executor-db.md (health, then journal).')
-
 
 def fixed_message(args):
-    """Only fixed texts; a hosted runner or executor database unit name is the one accepted value."""
+    """Only the fixed retention text; no free text from callers."""
     if args == ['retention']:
         return RETENTION
-    if args == ['bundles']:
-        return BUNDLES
-    if len(args) == 2 and args[0] == 'hosted-runner' and re.fullmatch(r'hosted-runner-[a-z0-9-]{1,32}\.service', args[1]):
-        return HOSTED_RUNNER[0], HOSTED_RUNNER[1].format(unit=args[1])
-    if len(args) == 2 and args[0] == 'executor-db' and re.fullmatch(r'executor-db-[a-z0-9-]{1,32}-(health|backup)\.service', args[1]):
-        return EXECUTOR_DB[0], EXECUTOR_DB[1].format(unit=args[1])
-    if args:
-        raise SystemExit('Unknown alert')
-    return STALE
+    raise SystemExit('Unknown alert')
 
 
-def send(config, title=STALE[0], message=STALE[1]):
+def send(config, title=RETENTION[0], message=RETENTION[1]):
     failures = []
     try:
         p = config['pushover']
@@ -55,6 +37,5 @@ def send(config, title=STALE[0], message=STALE[1]):
 
 
 if __name__ == '__main__':
-    # Optional further arguments select a fixed message; no free text from callers.
     title, message = fixed_message(sys.argv[2:])
     send(json.loads(Path(sys.argv[1]).read_text()), title, message)

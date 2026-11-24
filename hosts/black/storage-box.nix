@@ -54,7 +54,6 @@ in {
       default = {};
       description = "Deployment name to the artifact store whose referenced bundles go into its backup";
     };
-    pushover.enable = lib.mkEnableOption "Pushover alerts (requires an existing application token and user key)";
     repository = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -73,7 +72,7 @@ in {
         message = "Provision Storage Box repository and verified host key first";
       }
     ];
-    sops.secrets = lib.genAttrs (["product-backup/writer-key" "product-backup/passphrase"] ++ lib.optional cfg.pushover.enable "product-backup/alert-config") (_: {
+    sops.secrets = lib.genAttrs ["product-backup/writer-key" "product-backup/passphrase"] (_: {
       mode = "0400";
       sopsFile = ../../secrets/product-backup.yaml;
     });
@@ -81,32 +80,30 @@ in {
     system.build.productBackupRunner = runner;
     environment.systemPackages = [runner];
     systemd.tmpfiles.rules = ["d /var/lib/product-backup 0700 root root -"];
+    # Reports both checks to June's prod deployment on every run, firing or
+    # resolved (scripts/june-alert.py); June dedupes, writes the text and
+    # alerts its staff. Reads only local receipts and the runner key file.
     systemd.services.product-backup-health = {
-      description = "Alert on absent, stale or bundle-incomplete off-host product backup";
-      after = ["sops-install-secrets.service"];
-      requires = ["sops-install-secrets.service"];
+      description = "Report absent, stale or bundle-incomplete off-host product backup to June";
+      after = ["network-online.target"];
+      wants = ["network-online.target"];
       serviceConfig = {
         Type = "oneshot";
         UMask = "0077";
       };
       path = [pkgs.python3];
-      script = let
-        alert = message:
-          if cfg.pushover.enable
-          then "python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config ${message}"
-          else "echo 'Push delivery unavailable: an existing Pushover application token is required' >&2";
-      in ''
+      script = ''
         # Bit 1: missing or stale backup. Bit 2: the latest archive lacks
         # referenced hosted-workflow bundles; the backup itself succeeded.
         status=0
         python3 ${../../scripts/storage-box/health.py} /var/lib/product-backup ${lib.concatStringsSep " " names} || status=$?
-        if (( status & 1 )); then
-          ${alert ""}
-        fi
-        if (( status & 2 )); then
-          ${alert "bundles"}
-        fi
-        if (( status != 0 )); then
+        delivery=0
+        report() {
+          python3 ${../../scripts/june-alert.py} june-prod "$1" "" "$2" || delivery=1
+        }
+        if (( status & 1 )); then report product-backup firing; else report product-backup resolved; fi
+        if (( status & 2 )); then report product-backup-bundles firing; else report product-backup-bundles resolved; fi
+        if (( status != 0 || delivery != 0 )); then
           exit 1
         fi
       '';

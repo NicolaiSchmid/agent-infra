@@ -32,13 +32,14 @@
       slots = 2;
     };
   };
-  # Black's one alert path: Pushover through scripts/storage-box/alert.py,
-  # enabled with services.productBackup.pushover (off until an application
-  # token exists). Until then the failure is only a fixed journal line.
-  pushover = config.services.productBackup.pushover.enable;
+  # Black's alerts go to June (scripts/june-alert.py): a failed runner is
+  # reported to the deployment it polls, authenticated with that runner's own
+  # key. June writes the text, alerts its staff and resolves the incident
+  # once the runner polls again, so nothing here reports "resolved".
   failureAlert = {
-    description = "Alert that hosted runner %i is failed";
-    after = lib.optional pushover "sops-install-secrets.service";
+    description = "Report to June that hosted runner %i is failed";
+    after = ["network-online.target"];
+    wants = ["network-online.target"];
     path = [pkgs.python3];
     serviceConfig = {
       Type = "oneshot";
@@ -47,11 +48,8 @@
     scriptArgs = "%i";
     script = ''
       echo "<2>Hosted runner unit $1 is failed and no longer polls June; see runbooks/black-hosted-runner.md" >&2
-      ${
-        if pushover
-        then ''python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config hosted-runner "$1"''
-        else "echo '<3>Push delivery unavailable: an existing Pushover application token is required' >&2"
-      }
+      deployment=''${1#hosted-runner-}
+      python3 ${../../scripts/june-alert.py} "''${deployment%.service}" runner-unit "$1" firing
     '';
   };
   service = name: instance: let

@@ -8,7 +8,5 @@ in {
     enable = true;
     inherit (target) repository knownHosts;
     publicRecipient = builtins.readFile ./storage-box-recipient.pub;
-    # User key alone cannot deliver Pushover messages; no app was authorized.
-    pushover.enable = false;
   };
 }
