@@ -6,6 +6,19 @@ on:
     branches: [main]
 
 jobs:
+  prometheus-dashboard:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+      - name: Test quota charts
+        run: node hosts/forge/prometheus/dashboard/test_graph.mjs
+      - name: Test quota collector
+        run: python3 -m unittest discover -s hosts/forge/prometheus/dashboard -p 'test_*.py'
+
   convex-callback-patch:
     runs-on: ubicloud-standard-2
     timeout-minutes: 10

@@ -9,6 +9,9 @@
       "Handlers": {
         "/": {
           "Proxy": "http://127.0.0.1:8317"
+        },
+        "/dashboard": {
+          "Proxy": "http://127.0.0.1:8318/dashboard"
         }
       }
     }
