@@ -18,8 +18,8 @@
 # - executor-db-<name>-backup.timer: a daily SQL dump into the Garage bucket
 #   executor-db-<name>-backups, kept 30 days (newest always kept);
 # - executor-db-<name>-health.timer: every 5 minutes, /health and an
-#   authenticated read; a failure of either timer raises the fixed
-#   executor-db alert (scripts/storage-box/alert.py).
+#   authenticated read; a failure of either timer reports the executor-db
+#   check to June (scripts/june-alert.py), and its next success resolves it.
 # All instances share executordb.slice, outside client-data.slice, so a
 # demo deployment's memory spike cannot take the registry with it.
 {stateDir}: {
@@ -175,36 +175,35 @@
       fi
     '';
 
-  # Black's one alert path (hosted-runner.nix): Pushover once an application
-  # token exists, until then a fixed journal line. At most one push per unit
-  # and hour, since the health timer fails every 5 minutes while a server is
-  # down.
-  pushover = config.services.productBackup.pushover.enable;
-  failureAlert = {
-    description = "Alert that executor database unit %i failed";
-    after = lib.optional pushover "sops-install-secrets.service";
-    path = [pkgs.python3 pkgs.coreutils pkgs.findutils];
+  # Black's alerts go to June's prod deployment (scripts/june-alert.py), for
+  # every instance: June dedupes the repeats while the health timer keeps
+  # failing every 5 minutes, writes the text and alerts its staff. A stamp
+  # per unit, written once June accepted "firing", tells the next success to
+  # report "resolved"; without one a success sends nothing.
+  alertStamps = "/var/lib/executor-db-alerts";
+  alertUnit = description: script: {
+    inherit description script;
+    after = ["network-online.target"];
+    wants = ["network-online.target"];
+    path = [pkgs.python3 pkgs.coreutils];
     serviceConfig = {
       Type = "oneshot";
       UMask = "0077";
     };
     scriptArgs = "%i";
-    script = ''
-      echo "<2>Executor database unit $1 failed; June integrations may be down. See runbooks/black-executor-db.md" >&2
-      stamp=/var/lib/executor-db-alerts/$1
-      mkdir -p /var/lib/executor-db-alerts
-      if [ -n "$(find "$stamp" -mmin -60 2>/dev/null)" ]; then
-        echo "alerted for $1 within the last hour; not pushing again" >&2
-        exit 0
-      fi
-      touch "$stamp"
-      ${
-        if pushover
-        then ''python3 ${../../scripts/storage-box/alert.py} /run/secrets/product-backup/alert-config executor-db "$1"''
-        else "echo '<3>Push delivery unavailable: an existing Pushover application token is required' >&2"
-      }
-    '';
   };
+  failureAlert = alertUnit "Report to June that executor database unit %i failed" ''
+    echo "<2>Executor database unit $1 failed; June integrations may be down. See runbooks/black-executor-db.md" >&2
+    python3 ${../../scripts/june-alert.py} june-prod executor-db "$1" firing
+    mkdir -p ${alertStamps}
+    touch "${alertStamps}/$1.firing"
+  '';
+  recoveredAlert = alertUnit "Report to June that executor database unit %i recovered" ''
+    stamp="${alertStamps}/$1.firing"
+    [ -e "$stamp" ] || exit 0
+    python3 ${../../scripts/june-alert.py} june-prod executor-db "$1" resolved
+    rm -f "$stamp"
+  '';
 
   instanceServices = name: i: {
     "executor-db-${name}" = {
@@ -245,7 +244,10 @@
       after = ["executor-db-${name}.service" "garage.service"];
       requires = ["garage.service"];
       requisite = ["executor-db-${name}.service"];
-      unitConfig.OnFailure = ["executor-db-failed@%n.service"];
+      unitConfig = {
+        OnFailure = ["executor-db-failed@%n.service"];
+        OnSuccess = ["executor-db-recovered@%n.service"];
+      };
       serviceConfig = {
         Type = "oneshot";
         ExecStartPre = provisionBackup name;
@@ -259,7 +261,10 @@
     "executor-db-${name}-health" = {
       description = "Check executor database ${name} answers authenticated reads";
       after = ["executor-db-${name}.service"];
-      unitConfig.OnFailure = ["executor-db-failed@%n.service"];
+      unitConfig = {
+        OnFailure = ["executor-db-failed@%n.service"];
+        OnSuccess = ["executor-db-recovered@%n.service"];
+      };
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${health name i}/bin/executor-db-${name}-health";
@@ -288,7 +293,10 @@ in {
 
   systemd.services =
     lib.concatMapAttrs instanceServices instances
-    // {"executor-db-failed@" = failureAlert;};
+    // {
+      "executor-db-failed@" = failureAlert;
+      "executor-db-recovered@" = recoveredAlert;
+    };
 
   systemd.timers =
     lib.concatMapAttrs (name: _: {

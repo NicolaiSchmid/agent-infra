@@ -205,8 +205,8 @@ Each bundle is read without following symlinks and verified against its digest
 before it enters the archive. A referenced bundle that is missing or damaged
 does not fail the backup: the archive keeps the snapshot and every other
 bundle, the receipt names the absent digests, and the hourly
-`product-backup-health` sends the "Product backup lacks hosted bundles" alert
-until a later backup holds them all. Runs on an absent bundle cannot resume
+`product-backup-health` reports `product-backup-bundles firing` to June
+until a later backup holds them all, then `resolved`. Runs on an absent bundle cannot resume
 from that archive. Archives written before this backup existed carry no
 `agent_artifacts` and are accepted as they are, without a backfill;
 `verify-restore.py` prints a warning for both cases. Rebuilding is no recovery path, because

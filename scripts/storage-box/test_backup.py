@@ -340,16 +340,13 @@ class AlertTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '^Backup alert delivery failed: Pushover$'):
                 alert.send(config)
 
-    def test_fixed_messages_accept_only_a_hosted_runner_unit(self):
+    def test_fixed_message_is_retention_only(self):
         spec = importlib.util.spec_from_file_location('alert', Path(__file__).with_name('alert.py'))
         alert = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(alert)
-        self.assertEqual(alert.fixed_message([]), alert.STALE)
         self.assertEqual(alert.fixed_message(['retention']), alert.RETENTION)
-        title, message = alert.fixed_message(['hosted-runner', 'hosted-runner-june-prod.service'])
-        self.assertEqual(title, 'Hosted runner failed')
-        self.assertIn('hosted-runner-june-prod.service is failed', message)
-        for args in (['hosted-runner', 'sshd.service'], ['hosted-runner', 'hosted-runner-x.service; rm'], ['hosted-runner'], ['other']):
+        for args in ([], ['bundles'], ['hosted-runner', 'hosted-runner-june-prod.service'],
+                     ['executor-db', 'executor-db-june-prod-health.service'], ['other']):
             with self.assertRaises(SystemExit):
                 alert.fixed_message(args)
 

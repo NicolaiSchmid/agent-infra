@@ -36,6 +36,7 @@ jobs:
           python3 scripts/checked-routing-step.test.py
           python3 scripts/t3code-bootstrap.test.py
           python3 scripts/hosted-runner-runbook.test.py
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/june-alert.test.py
       - name: Check flake
         run: nix flake check --show-trace
 

@@ -39,8 +39,20 @@ Per instance:
   `garage:executor-db-<name>-backups/daily/`, kept 30 days, the newest
   always kept.
 - A failed health or backup run starts `executor-db-failed@<unit>`. That
-  unit writes a fixed journal line and, once Pushover is enabled, sends the
-  fixed "Executor database failed" push, at most once per unit and hour.
+  unit writes a fixed journal line and reports `executor-db firing` with the
+  unit name to June's prod deployment (`scripts/june-alert.py`, every
+  instance, june-dev's included), authenticated with
+  `/root/hosted-runner/june-prod-runner.key`. June dedupes the repeats of a
+  health timer that keeps failing every 5 minutes and alerts its staff. Once
+  June accepted "firing", the unit leaves a stamp in
+  `/var/lib/executor-db-alerts/<unit>.firing`; the next successful run starts
+  `executor-db-recovered@<unit>` (`OnSuccess=`), which reports `resolved`
+  and removes the stamp. Without a stamp a success sends nothing.
+- June's side must be deployed first: until `hostedRuns/alerts:report`
+  exists the report fails, `executor-db-failed@` ends failed and only the
+  journal line remains. Test by hand (sends one real alert, then resolves
+  it on the next health run within 5 minutes):
+  `systemctl start executor-db-failed@executor-db-june-prod-health.service`.
 
 Network boundary:
 
@@ -199,7 +211,8 @@ nothing in the template names black.
   Until it takes these dumps too, losing black's disks loses the registry
   since the last off-host Convex backup. Users would have to reconnect
   integrations. Their secrets survive in Convex.
-- Pushover delivery is off until an application token exists (same as the
-  hosted runner and the backups).
+- Alerts depend on June prod answering: when it is down, the failure stays
+  in the journal (`journalctl -u 'executor-db-failed@*'`) and no one is
+  paged.
 - Only June's executor database moved. June's data workspaces still use
   Turso; they move separately.
