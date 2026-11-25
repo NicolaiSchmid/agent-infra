@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory() as directory:
     script.write_text(source.replace("/var/lib/libvirt/images/atlas-state.raw", str(images[0]))
                      .replace("/var/lib/libvirt/images/atlas-root.raw", str(images[1])))
     mocks = {
+        "flock": ":",
         "df": 'printf "Avail\\n%s\\n" "$FREE_BYTES"',
         "lsattr": 'echo "${ATTRIBUTES:---------------C------} image"',
         "stat": 'echo 17179869184',
