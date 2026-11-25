@@ -289,8 +289,11 @@ first drill on real archives has not run yet.
 ## Bump the eve-deployments pin
 
 `hosts/black/eve-deployments.nix` holds the one revision of the runner bundle
-and the toolchain. It pins eve-deployments PR #125's merge commit (`9038653`,
-2026-11-23): `hosted.json` manifests that make protocol 3 builds, reported to
+and the toolchain. It pins eve-deployments PR #127's merge commit (`7650e12`,
+2026-11-25): `callJuneRequest`, a typed June call under the workflow's own
+key, and PR #128: a failed Eve turn commits `fail`, so June ends the run
+failed and alerts (June PR #1531, which must be live first). On top of PR
+#125 (`9038653`, 2026-11-23): `hosted.json` manifests that make protocol 3 builds, reported to
 June with the manifest, and `juneTools()` with the describe and call
 primitives (June PR #1500), on top of PR #124: restore in pages of 16 with a pending inbox view and a 4 MiB
 page budget (phase 1 of June's replay compaction plan), on top of artifacts flushed before they are published or reported (PR
