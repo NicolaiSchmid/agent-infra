@@ -14,6 +14,22 @@
     (name:
       lib.optionals (cfg.agentSourceRepositories ? ${name}) ["--agent-source" cfg.agentSourceRepositories.${name}]
       ++ lib.optionals (cfg.agentArtifactStores ? ${name}) ["--agent-artifacts" cfg.agentArtifactStores.${name}]);
+  # The Borg/SSH environment both runners share; one lock, so only one Borg
+  # job reaches the repository at a time.
+  borgEnvironment = ''
+    export BORG_REPO=${lib.escapeShellArg cfg.repository}
+    export BORG_PASSCOMMAND="cat /run/secrets/product-backup/passphrase"
+    export BORG_RSH="ssh -i /run/secrets/product-backup/writer-key -p 23 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${pkgs.writeText "storage-box-known-hosts" cfg.knownHosts}"
+    export BORG_REMOTE_PATH=borg-1.4
+    export PRODUCT_BACKUP_SOURCE_REVISION=${lib.escapeShellArg (
+      if config.system.configurationRevision == null
+      then "unknown"
+      else config.system.configurationRevision
+    )}
+    export BORG_CACHE_DIR=/var/lib/product-backup/cache
+    export BORG_SECURITY_DIR=/var/lib/product-backup/security
+  '';
+  recipient = lib.optionalString (cfg.publicRecipient != "") "--age-recipient-file ${pkgs.writeText "product-backup-public-recipient" cfg.publicRecipient}";
   runner = pkgs.writeShellApplication {
     name = "product-backup";
     runtimeInputs = [pkgs.borgbackup pkgs.age pkgs.git pkgs.openssh pkgs.python3 pkgs.util-linux config.virtualisation.docker.package pkgs.systemd];
@@ -22,20 +38,24 @@
       case "$1" in
         ${lib.concatStrings (lib.mapAttrsToList (name: args: "${name}) extra=(${lib.escapeShellArgs args}) ;;\n") agentArgs)}
       esac
-      export BORG_REPO=${lib.escapeShellArg cfg.repository}
-      export BORG_PASSCOMMAND="cat /run/secrets/product-backup/passphrase"
-      export BORG_RSH="ssh -i /run/secrets/product-backup/writer-key -p 23 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${pkgs.writeText "storage-box-known-hosts" cfg.knownHosts}"
-      export BORG_REMOTE_PATH=borg-1.4
-      export PRODUCT_BACKUP_SOURCE_REVISION=${lib.escapeShellArg (
-        if config.system.configurationRevision == null
-        then "unknown"
-        else config.system.configurationRevision
-      )}
-      export BORG_CACHE_DIR=/var/lib/product-backup/cache
-      export BORG_SECURITY_DIR=/var/lib/product-backup/security
-      exec flock -w 7200 /var/lib/product-backup/lock python3 ${../../scripts/storage-box/backup.py} "$@" "''${extra[@]}" --capture-runtime ${lib.optionalString (cfg.publicRecipient != "") "--age-recipient-file ${pkgs.writeText "product-backup-public-recipient" cfg.publicRecipient}"} --state /var/lib/product-backup --secrets /var/lib/client-data/secrets --config ${../..}
+      ${borgEnvironment}
+      exec flock -w 7200 /var/lib/product-backup/lock python3 ${../../scripts/storage-box/backup.py} "$@" "''${extra[@]}" --capture-runtime ${recipient} --state /var/lib/product-backup --secrets /var/lib/client-data/secrets --config ${../..}
     '';
   };
+  # `product-backup-executor-db <instance> <dump.sql.gz>`, run by
+  # executor-db-<instance>-backup (executor-db.nix) after its Garage upload:
+  # archive series executor-db-<instance>, receipt beside the Convex ones.
+  executorDbRunner = pkgs.writeShellApplication {
+    name = "product-backup-executor-db";
+    runtimeInputs = [pkgs.borgbackup pkgs.age pkgs.openssh pkgs.python3 pkgs.util-linux];
+    text = ''
+      ${borgEnvironment}
+      exec flock -w 7200 /var/lib/product-backup/lock python3 ${../../scripts/storage-box/backup.py} executor-db "$@" ${recipient} --state /var/lib/product-backup --secrets /var/lib/client-data/secrets
+    '';
+  };
+  # Receipts the hourly health check expects: every Convex deployment and
+  # every executor database instance.
+  executorDbNames = map (n: "executor-db-${n}") (builtins.attrNames (import ./executor-db/instances.nix).instances);
 in {
   options.services.productBackup = {
     enable = lib.mkEnableOption "encrypted Storage Box product backups (requires provisioned repository)";
@@ -78,7 +98,8 @@ in {
     });
     sops.useSystemdActivation = true;
     system.build.productBackupRunner = runner;
-    environment.systemPackages = [runner];
+    system.build.productBackupExecutorDbRunner = executorDbRunner;
+    environment.systemPackages = [runner executorDbRunner];
     systemd.tmpfiles.rules = ["d /var/lib/product-backup 0700 root root -"];
     # Reports both checks to June's prod deployment on every run, firing or
     # resolved (scripts/june-alert.py); June dedupes, writes the text and
@@ -96,7 +117,7 @@ in {
         # Bit 1: missing or stale backup. Bit 2: the latest archive lacks
         # referenced hosted-workflow bundles; the backup itself succeeded.
         status=0
-        python3 ${../../scripts/storage-box/health.py} /var/lib/product-backup ${lib.concatStringsSep " " names} || status=$?
+        python3 ${../../scripts/storage-box/health.py} /var/lib/product-backup ${lib.concatStringsSep " " (names ++ executorDbNames)} || status=$?
         delivery=0
         report() {
           python3 ${../../scripts/june-alert.py} june-prod "$1" "" "$2" || delivery=1

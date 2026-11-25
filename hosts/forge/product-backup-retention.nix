@@ -19,7 +19,11 @@
 }: let
   cfg = config.services.productBackupRetention;
   target = import ../storage-box-repository.nix;
-  current = builtins.attrNames (import ../black/convex/deployments.nix).deployments;
+  # Series that always keep their newest archive: every Convex deployment and
+  # every executor database instance (hosts/black/executor-db/instances.nix).
+  current =
+    builtins.attrNames (import ../black/convex/deployments.nix).deployments
+    ++ map (n: "executor-db-${n}") (builtins.attrNames (import ../black/executor-db/instances.nix).instances);
   stateDir = "/var/lib/product-backup-retention";
   logFile = "/var/log/product-backup-retention.log";
   secret = name: config.sops.secrets."product-backup-retention/${name}".path;

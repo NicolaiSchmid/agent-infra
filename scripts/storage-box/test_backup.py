@@ -13,6 +13,7 @@ import tarfile
 import json
 import time
 import zipfile
+import gzip
 
 spec = importlib.util.spec_from_file_location('backup', Path(__file__).with_name('backup.py'))
 backup = importlib.util.module_from_spec(spec)
@@ -323,6 +324,70 @@ class PublicKeyTest(unittest.TestCase):
             with tarfile.open(fileobj=io.BytesIO(plaintext)) as tar:
                 self.assertEqual(set(tar.getnames()), {'export.zip', 'recovery.tar', 'manifest.json'})
                 self.assertEqual(tar.extractfile('export.zip').read(), export.read_bytes())
+
+def write_dump(path, body):
+    with gzip.open(path, 'wb') as dump:
+        dump.write(body)
+
+
+DUMP = (b'PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n'
+        b'CREATE TABLE IF NOT EXISTS "tool" (id TEXT);\n'
+        b'INSERT INTO "tool" VALUES(\'a\');\nINSERT INTO "tool" VALUES(\'b\');\n'
+        b'INSERT INTO source VALUES(\'line one\nline two\');\nCOMMIT;\n')
+
+
+class ExecutorDbTest(unittest.TestCase):
+    def test_counts_inserts_and_requires_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'dump.sql.gz'
+            write_dump(path, DUMP)
+            self.assertEqual(backup.inspect_dump(path)['inserts'], {'tool': 2, 'source': 1})
+            write_dump(path, DUMP.replace(b'COMMIT;\n', b''))
+            with self.assertRaises(ValueError):
+                backup.inspect_dump(path)
+            path.write_bytes(b'not gzip')
+            with self.assertRaises(OSError):
+                backup.inspect_dump(path)
+
+    @unittest.skipUnless(shutil.which('age') and shutil.which('age-keygen'), 'age integration tools required')
+    def test_sealed_archive_and_receipt_only_on_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            subprocess.run(['age-keygen', '-o', str(root / 'identity')], check=True, stderr=subprocess.DEVNULL)
+            (root / 'recipient').write_bytes(subprocess.check_output(['age-keygen', '-y', str(root / 'identity')]))
+            secrets = root / 'secrets'
+            secrets.mkdir()
+            dump = root / 'dump.sql.gz'
+            write_dump(dump, DUMP)
+            args = ['demo', str(dump), '--state', d, '--secrets', str(secrets),
+                    '--age-recipient-file', str(root / 'recipient')]
+            info = patch.object(subprocess, 'check_output', return_value=b'{"encryption":{"mode":"repokey-blake2"}}')
+            with info, self.assertRaises(ValueError):
+                backup.executor_db(args)  # no JWT key to carry
+            (secrets / 'executor-db-demo-jwt.key').write_text('private key fixture')
+            (secrets / 'convex-demo-admin-key').write_text('unrelated')
+            with info, patch.object(subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'borg')):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    backup.executor_db(args)
+            self.assertFalse((root / 'executor-db-demo.json').exists())
+            def record_borg(command, **kwargs):
+                self.assertEqual(command[-1], 'payload.tar.age')
+                self.assertTrue(command[-2].startswith('::executor-db-demo-'))
+                shutil.copyfile(Path(kwargs['cwd']) / 'payload.tar.age', root / 'saved.age')
+                return subprocess.CompletedProcess(command, 0, stdout=b'{}')
+            with info, patch.object(subprocess, 'run', side_effect=record_borg):
+                backup.executor_db(args)
+            receipt = json.loads((root / 'executor-db-demo.json').read_text())
+            self.assertEqual(receipt['inserts'], {'tool': 2, 'source': 1})
+            self.assertEqual(receipt['sha256'], hashlib.sha256(dump.read_bytes()).hexdigest())
+            self.assertTrue(dump.exists())
+            plaintext = subprocess.check_output(['age', '-d', '-i', str(root / 'identity'), str(root / 'saved.age')])
+            with tarfile.open(fileobj=io.BytesIO(plaintext)) as tar:
+                self.assertEqual(set(tar.getnames()), {'dump.sql.gz', 'recovery.tar', 'manifest.json'})
+                self.assertEqual(tar.extractfile('dump.sql.gz').read(), dump.read_bytes())
+                with tarfile.open(fileobj=tar.extractfile('recovery.tar')) as recovery:
+                    self.assertEqual(recovery.getnames(), ['secrets/executor-db-demo-jwt.key'])
+
 
 class HealthTest(unittest.TestCase):
     def test_missing_fresh_stale_and_future_receipts(self):
