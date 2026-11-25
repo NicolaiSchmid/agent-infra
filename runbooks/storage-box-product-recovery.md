@@ -3,7 +3,10 @@
 Scope: the six Black Convex deployments, their storage-inclusive snapshot ZIPs,
 instance/storage secrets and deployment source, and for June's deployments the
 agent source repository and the hosted-workflow bundles the snapshot references
-([black-agent-source.md](black-agent-source.md#backup-and-restore)). This is **not an Atlas VM backup**,
+([black-agent-source.md](black-agent-source.md#backup-and-restore)), and since
+2026-11-25 the daily SQL dumps of June's executor databases (archive series
+`executor-db-<instance>`, [black-executor-db.md](black-executor-db.md#off-host-copy-storage-box)).
+This is **not an Atlas VM backup**,
 nor full E2B, ClickHouse, Garage, or host disaster recovery. Garage daily copies on
 Black are not off-host recovery. No disk deletion or repartition is needed here.
 

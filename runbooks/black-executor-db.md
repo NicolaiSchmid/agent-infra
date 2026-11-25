@@ -37,7 +37,9 @@ Per instance:
 - `executor-db-<name>-backup.timer` runs daily at 03:15 (plus up to
   15 minutes). It writes a gzip SQL dump to
   `garage:executor-db-<name>-backups/daily/`, kept 30 days, the newest
-  always kept.
+  always kept. The same dump then goes off-host into the Storage Box Borg
+  repository that holds the Convex backups, as archive series
+  `executor-db-<name>` (see [Off-host copy](#off-host-copy-storage-box)).
 - A failed health or backup run starts `executor-db-failed@<unit>`. That
   unit writes a fixed journal line and reports `executor-db firing` with the
   unit name to June's prod deployment (`scripts/june-alert.py`, every
@@ -98,6 +100,57 @@ rm /var/lib/client-data/secrets/executor-db-june-prod-jwt.key.old
 
 Convex calls between the restart and the env update fail with 401. That is a
 few seconds; do it outside working hours for `june-prod`.
+
+## Off-host copy (Storage Box)
+
+After the Garage upload, the backup unit hands the dump to
+`product-backup-executor-db <name> <dump>` (`hosts/black/storage-box.nix`).
+It uses the same repository, writer key, age recipient and lock as the
+Convex backups ([storage-box-product-recovery.md](storage-box-product-recovery.md)).
+`scripts/storage-box/backup.py executor-db`:
+
+- checks the dump (whole gzip, ends in `COMMIT;`) and counts the `INSERT`
+  lines per table;
+- seals `dump.sql.gz`, `recovery.tar` (only
+  `secrets/executor-db-<name>-jwt.key`, so the token in Convex's backed-up
+  environment keeps working after a host restore) and `manifest.json` into
+  `payload.tar.age`, encrypted to the operator's public recipient. Black
+  cannot decrypt it;
+- writes archive `executor-db-<name>-<ns>`, then the receipt
+  `/var/lib/product-backup/executor-db-<name>.json`. The receipt holds the
+  archive name, SHA256 and sizes of the dump, the `inserts` per table and
+  Borg's statistics. No table content.
+
+A failed off-host step still lets the Garage retention run, then fails the
+backup unit, which reports `executor-db firing` as above. The hourly
+`product-backup-health` check also expects both receipts and reports
+`product-backup` when one is missing or older than 36 hours. Retention on
+Forge (30 days, newest always kept) treats both series as current
+(`hosts/forge/product-backup-retention.nix`).
+
+Check the newest receipt and the remote archive from black (the writer key
+may list and read, never delete):
+
+```bash
+ssh root@black
+jq '{archive, sha256, dump_bytes, inserts, completed_at: (.completed_at | todate)}' \
+  /var/lib/product-backup/executor-db-june-prod.json
+# The runner's environment, without running the backup: BORG_REPO, BORG_RSH, passphrase command.
+eval "$(grep -E '^\s*export BORG_' "$(command -v product-backup-executor-db)")"
+nix shell nixpkgs#borgbackup -c borg list --glob-archives 'executor-db-june-prod-*' --last 3 \
+  --format '{archive} {time}{NL}'
+nix shell nixpkgs#borgbackup -c borg list --format '{path} {size} {mtime}{NL}' \
+  "::$(jq -r .archive /var/lib/product-backup/executor-db-june-prod.json)"
+```
+
+To restore from the Storage Box (black's disks lost): on the recovery
+machine that holds the age identity, `borg extract` the archive, decrypt
+`payload.tar.age` and unpack it into a private directory. Check
+`sha256sum dump.sql.gz` against `manifest.json`, put
+`recovery.tar`'s key back at `secrets/executor-db-<name>-jwt.key`, and
+replay `dump.sql.gz` into the empty server as below. To prove that the
+archived dump restores without the identity, run the drill on the Garage
+dump whose SHA256 equals the receipt's.
 
 ## Restore from a backup
 
@@ -206,11 +259,12 @@ nothing in the template names black.
 
 ## Known gaps
 
-- **No off-host copy yet.** The daily dumps go to Garage on the same disks.
-  The Storage Box job (`storage-box.nix`) only takes Convex export zips.
-  Until it takes these dumps too, losing black's disks loses the registry
-  since the last off-host Convex backup. Users would have to reconnect
-  integrations. Their secrets survive in Convex.
+- The off-host copy is daily. Losing black's disks loses up to a day of
+  registry changes; users would reconnect what changed since. Their secrets
+  survive in Convex.
+- Decrypting an off-host archive needs the operator's age identity, which
+  stays off black and Atlas. Drills on black restore the Garage dump with
+  the receipt's SHA256, not the decrypted archive.
 - Alerts depend on June prod answering: when it is down, the failure stays
   in the journal (`journalctl -u 'executor-db-failed@*'`) and no one is
   paged.

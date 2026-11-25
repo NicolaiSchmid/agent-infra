@@ -16,7 +16,10 @@
 #   token with it; `executor-db-convex-env <name>` writes the URL and a token
 #   into the Convex deployment's environment (operator-run, never by a unit);
 # - executor-db-<name>-backup.timer: a daily SQL dump into the Garage bucket
-#   executor-db-<name>-backups, kept 30 days (newest always kept);
+#   executor-db-<name>-backups, kept 30 days (newest always kept), and the
+#   same dump into the Storage Box repository as archive series
+#   executor-db-<name> (storage-box.nix; receipt
+#   /var/lib/product-backup/executor-db-<name>.json, checked hourly);
 # - executor-db-<name>-health.timer: every 5 minutes, /health and an
 #   authenticated read; a failure of either timer reports the executor-db
 #   check to June (scripts/june-alert.py), and its next success resolves it.
@@ -139,6 +142,13 @@
         gzip -9 "$dump"
         rclone copyto "$dump.gz" "$dest/$(date -u +%Y-%m-%dT%H%M%SZ).sql.gz"
         echo "dumped $(stat -c %s "$dump.gz") bytes (gzip)"
+        # Off-host: the same dump into the Storage Box repository
+        # (storage-box.nix). A failure still lets the Garage retention run,
+        # then fails the unit, which alerts.
+        offhost_status=0
+        ${lib.optionalString config.services.productBackup.enable ''
+          ${config.system.build.productBackupExecutorDbRunner}/bin/product-backup-executor-db ${name} "$dump.gz" || offhost_status=$?
+        ''}
 
         # 30 days, the same as the Convex backups (convex.nix); never the
         # newest. Names start with their UTC time.
@@ -148,6 +158,7 @@
           rclone deletefile "$dest/$old"
           echo "removed $old"
         done
+        exit "$offhost_status"
       '';
     };
 
@@ -240,9 +251,9 @@
     };
 
     "executor-db-${name}-backup" = {
-      description = "Dump executor database ${name} into Garage";
-      after = ["executor-db-${name}.service" "garage.service"];
-      requires = ["garage.service"];
+      description = "Dump executor database ${name} into Garage and the Storage Box";
+      after = ["executor-db-${name}.service" "garage.service"] ++ lib.optional config.services.productBackup.enable "sops-install-secrets.service";
+      requires = ["garage.service"] ++ lib.optional config.services.productBackup.enable "sops-install-secrets.service";
       requisite = ["executor-db-${name}.service"];
       unitConfig = {
         OnFailure = ["executor-db-failed@%n.service"];
@@ -252,7 +263,8 @@
         Type = "oneshot";
         ExecStartPre = provisionBackup name;
         ExecStart = "${backup name i}/bin/executor-db-${name}-backup";
-        TimeoutStartSec = "30min";
+        # Room to wait for the off-host lock while a Convex backup holds it.
+        TimeoutStartSec = "1h";
         Nice = 19;
         IOSchedulingClass = "idle";
       };

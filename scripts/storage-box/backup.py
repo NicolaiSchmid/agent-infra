@@ -1,5 +1,7 @@
-"""Archive completed exports; no raw live database or object-store reads."""
+"""Archive completed exports and executor database dumps; no raw live database
+or object-store reads."""
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -253,37 +255,104 @@ def main():
                        sha256=digest,
                        scope='Convex product export including storage, secrets and deployment source')
         (work / 'manifest.json').write_text(json.dumps(metrics))
-        files = ['export.zip', 'recovery.tar', 'manifest.json']
-        if a.age_recipient_file:
-            # Only public recipient material is present on the writer. Fresh
-            # randomized age ciphertext intentionally sacrifices deduplication.
-            payload = work / 'payload.tar.age'
-            with payload.open('wb') as output:
-                process = subprocess.Popen(['age', '--encrypt', '--recipients-file',
-                    str(a.age_recipient_file)], stdin=subprocess.PIPE, stdout=output)
-                try:
-                    with tarfile.open(fileobj=process.stdin, mode='w|') as tar:
-                        for name in files:
-                            tar.add(work / name, arcname=name)
-                finally:
-                    process.stdin.close()
-                if process.wait() != 0:
-                    raise RuntimeError('public-key payload encryption failed')
-            files = ['payload.tar.age']
-        archive = f'{a.deployment}-{time.time_ns()}'
-        result = subprocess.run(['borg', 'create', '--remote-path=borg-1.4', '--stats', '--json',
-                                 '--compression', 'none' if a.age_recipient_file else 'lz4', '::' + archive,
-                                 *files],
-                                cwd=work, check=True, capture_output=True)
-        # Exit 1 (warning) also fails closed: no success timestamp.
-        receipt = dict(metrics, archive=archive, completed_at=time.time(),
-                       public_key_payload=bool(a.age_recipient_file),
-                       borg=json.loads(result.stdout))
-        target = a.state / (a.deployment + '.json')
-        temporary = target.with_suffix('.tmp')
-        temporary.write_text(json.dumps(receipt))
-        temporary.replace(target)
+        archive_payload(work, ['export.zip', 'recovery.tar', 'manifest.json'], a.deployment,
+                        metrics, a.state, a.age_recipient_file)
 
+
+def archive_payload(work, files, series, metrics, state, age_recipient_file):
+    """Archives `files` from `work` as SERIES-<ns> (retention.py's naming), age
+    sealed when a recipient is given, and only then writes the receipt
+    `state/SERIES.json` that health.py reads."""
+    if age_recipient_file:
+        # Only public recipient material is present on the writer. Fresh
+        # randomized age ciphertext intentionally sacrifices deduplication.
+        payload = work / 'payload.tar.age'
+        with payload.open('wb') as output:
+            process = subprocess.Popen(['age', '--encrypt', '--recipients-file',
+                str(age_recipient_file)], stdin=subprocess.PIPE, stdout=output)
+            try:
+                with tarfile.open(fileobj=process.stdin, mode='w|') as tar:
+                    for name in files:
+                        tar.add(work / name, arcname=name)
+            finally:
+                process.stdin.close()
+            if process.wait() != 0:
+                raise RuntimeError('public-key payload encryption failed')
+        files = ['payload.tar.age']
+    archive = f'{series}-{time.time_ns()}'
+    result = subprocess.run(['borg', 'create', '--remote-path=borg-1.4', '--stats', '--json',
+                             '--compression', 'none' if age_recipient_file else 'lz4', '::' + archive,
+                             *files],
+                            cwd=work, check=True, capture_output=True)
+    # Exit 1 (warning) also fails closed: no success timestamp.
+    receipt = dict(metrics, archive=archive, completed_at=time.time(),
+                   public_key_payload=bool(age_recipient_file),
+                   borg=json.loads(result.stdout))
+    target = state / (series + '.json')
+    temporary = target.with_suffix('.tmp')
+    temporary.write_text(json.dumps(receipt))
+    temporary.replace(target)
+
+
+INSERT = re.compile(rb'INSERT INTO "?([^" (]+)"? ')
+
+
+def inspect_dump(path):
+    """A gzip sqld `/dump` (hosts/black/executor-db.nix): whole, ending in
+    COMMIT. Counts INSERT lines per table, the restore drill's reference
+    (runbooks/black-executor-db.md), so a receipt names them without the
+    archive being decrypted."""
+    inserts, last, size = {}, b'', 0
+    with gzip.open(path, 'rb') as dump:
+        for line in dump:
+            size += len(line)
+            if line.strip():
+                last = line.strip()
+            match = INSERT.match(line)
+            if match:
+                table = match[1].decode()
+                inserts[table] = inserts.get(table, 0) + 1
+    if last != b'COMMIT;':
+        raise ValueError('dump does not end in COMMIT')
+    return {'dump_bytes': Path(path).stat().st_size, 'sql_bytes': size, 'inserts': inserts}
+
+
+def executor_db(argv):
+    """One executor database dump off-host, as series executor-db-NAME: the
+    dump, the instance's JWT key (so the Convex token in its Convex backup
+    keeps working after a host restore) and the manifest."""
+    p = argparse.ArgumentParser(prog='backup.py executor-db')
+    p.add_argument('instance')
+    p.add_argument('dump', type=Path)
+    for name in ('state', 'secrets'):
+        p.add_argument('--' + name, required=True, type=Path)
+    p.add_argument('--age-recipient-file', type=Path)
+    a = p.parse_args(argv)
+    os.umask(0o077)
+    repository = json.loads(subprocess.check_output(['borg', 'info', '--json']))
+    if repository['encryption']['mode'] != 'repokey-blake2':
+        raise ValueError('repository must use repokey-blake2 encryption')
+    series = 'executor-db-' + a.instance
+    metrics = inspect_dump(a.dump)
+    key = a.secrets / f'{series}-jwt.key'
+    if not key.is_file() or not key.stat().st_size:
+        raise ValueError('missing recovery secret')
+    with tempfile.TemporaryDirectory(dir=a.dump.parent) as directory:
+        work = Path(directory)
+        os.link(a.dump, work / 'dump.sql.gz')
+        with tarfile.open(work / 'recovery.tar', 'w') as tar:
+            tar.add(key, arcname='secrets/' + key.name)
+        with a.dump.open('rb') as source:
+            digest = hashlib.file_digest(source, 'sha256').hexdigest()
+        metrics.update(instance=a.instance,
+                       infrastructure_source_revision=os.environ.get('PRODUCT_BACKUP_SOURCE_REVISION', 'unknown'),
+                       sha256=digest, scope='Executor database SQL dump and its JWT signing key')
+        (work / 'manifest.json').write_text(json.dumps(metrics))
+        archive_payload(work, ['dump.sql.gz', 'recovery.tar', 'manifest.json'], series,
+                        metrics, a.state, a.age_recipient_file)
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1:2] == ['executor-db']:
+        executor_db(sys.argv[2:])
+    else:
+        main()
