@@ -73,6 +73,13 @@ in {
   ];
   systemd.timers.fstrim.timerConfig.RandomizedDelaySec = lib.mkForce "5m";
 
+  # Pausing on a host I/O error stops the guest clock. A long NTP poll
+  # interval leaves T3 Connect proofs outside their accepted time window.
+  services.timesyncd.extraConfig = ''
+    PollIntervalMinSec=16
+    PollIntervalMaxSec=64
+  '';
+
   networking = {
     hostName = "atlas";
     useDHCP = lib.mkDefault true;

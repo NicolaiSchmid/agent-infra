@@ -9,6 +9,7 @@ in {
   imports = [
     ./disko.nix
     ./libvirt.nix
+    ./vm-reclaim.nix
     ./networking.nix
     ./storage-box.nix
     ./storage-box-target.nix
